@@ -1,0 +1,18 @@
+.child-import{max-width:1180px}
+.child-import>.section-heading{padding:24px;gap:20px;flex-wrap:wrap}
+.child-import h2{font-size:21px}.child-import h3{font-size:17px;margin:24px 0 10px}
+.child-import p{line-height:1.8;font-size:14px;margin:6px 0}
+.child-import-body{padding:0 24px 24px;min-width:0}
+.child-import-guide{background:#f4f7fb;border:1px solid #e1e8f0;border-radius:10px;padding:18px 20px;margin-bottom:20px}
+.child-import-guide>strong{font-size:16px}.child-import-controls{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+.child-import-summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:24px;padding:18px 0;border-bottom:1px solid #e1e8f0}
+.child-import-summary>strong{width:100%;overflow-wrap:anywhere}.child-import-summary>span{background:#edf3f9;border-radius:6px;padding:7px 10px}
+.child-import table{width:100%;min-width:660px;font-size:14px}.child-import td{vertical-align:top;padding:16px!important}
+.child-import td>strong,.child-import code,.child-import td>small{display:block}.child-import code{font-size:12px;color:#687c91;margin-top:5px;overflow-wrap:anywhere;white-space:normal}
+.child-import td>small{margin-top:7px}.child-import-item{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;padding:8px 0;border-bottom:1px solid #edf1f5}.child-import-item:last-child{border-bottom:0}.child-import-item>strong{white-space:nowrap}
+.child-import-pages{display:flex;gap:12px;align-items:center;justify-content:flex-end;margin-top:12px}
+.child-import-confirm{margin-top:24px;padding:20px;background:#f7f9fc;border:1px solid #e1e8f0;border-radius:10px}
+.child-import-confirm>label:first-child{display:block;font-size:14px;line-height:1.8}.child-import-confirm input[type=datetime-local]{display:block;max-width:340px;margin:8px 0}
+.child-import-confirm>small{display:block;line-height:1.8;color:#617184}.child-import-check{display:flex!important;align-items:flex-start;gap:10px;font-size:14px;line-height:1.7;margin:18px 0}.child-import-check input{width:17px!important;flex:0 0 17px;margin-top:4px!important}
+.child-import .message{margin-top:18px}.child-import-message{margin-top:18px;padding:16px;background:#edf6f0;border-radius:8px;color:#346c4c;line-height:1.8}
+@media(max-width:640px){.child-import>.section-heading{padding:18px}.child-import-body{padding:0 16px 18px}.child-import-controls .button,.child-import-confirm>.button{width:100%}.child-import-guide,.child-import-confirm{padding:14px}.child-import h2{font-size:19px}}

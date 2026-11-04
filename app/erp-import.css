@@ -1,0 +1,15 @@
+.modal.erp-import-modal{width:min(960px,calc(100vw - 32px));max-width:960px;max-height:90vh;overflow-y:auto}
+.erp-import-modal .panel{margin:12px 0}
+.erp-import-modal .import-mode{padding:14px;gap:12px}
+.erp-import-modal .import-rule{margin:12px 0;font-size:13px}
+.erp-import-modal .dropzone{padding:24px 16px}
+.erp-import-modal .dropzone h2{font-size:18px}
+.erp-import-modal .upload-icon{width:46px;height:46px;margin-bottom:10px}
+.erp-import-modal .preview-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.erp-import-modal .import-preview{padding:18px}
+.erp-import-modal .footnote{margin:12px 0;font-size:12px}
+.erp-import-success{display:flex;align-items:center;gap:10px;padding:12px;border-radius:8px;background:#edf7f2;color:#28634b}
+.erp-import-success span{flex:1}
+@media(max-width:640px){.erp-import-modal .preview-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.erp-import-modal .import-mode{align-items:flex-start;flex-direction:column}}
+
+.source-import-preview{margin:16px 0}.source-import-preview p{line-height:1.6;margin:8px 0}.source-shop-select{display:flex;flex-direction:column;gap:7px;margin:12px 0;max-width:600px}.source-shop-select select{width:100%;height:40px}.source-shop-select small{color:#637a91}

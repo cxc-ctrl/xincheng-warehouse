@@ -1,0 +1,16 @@
+'use client';
+import {useMemo,useState} from 'react';
+import {Download,Search} from 'lucide-react';
+import type {OrderLine} from '../lib/model';
+import {time} from '../lib/model';
+import type {FreightData} from '../lib/freight-reconciliation';
+import {FREIGHT_PROFILES} from '../lib/freight-profiles';
+import {unmatchedFreightOrders} from '../lib/freight-missing';
+import {downloadXlsx} from '../lib/export-xlsx';
+export default function FreightMissing({orders,data,month}:{orders:OrderLine[];data:FreightData;month:string}){
+ const [search,setSearch]=useState(''),[page,setPage]=useState(1),[filter,setFilter]=useState('all');
+ const complete=new Set(data.freightImports.filter(b=>b.month===month&&b.complete).map(b=>b.carrier_profile)),all=FREIGHT_PROFILES.every(p=>complete.has(p.id));
+ const rows=useMemo(()=>unmatchedFreightOrders(orders,data.freightBills,month),[orders,data.freightBills,month]);const list=rows.filter(r=>(filter==='all'||(filter==='missing'?r.tracking.length>0:!r.tracking.length))&&[r.order_id,r.shop,r.carrier,r.goods,...r.tracking].join(' ').toLowerCase().includes(search.toLowerCase())),last=Math.max(1,Math.ceil(list.length/30)),current=Math.min(page,last);
+ function exportRows(){downloadXlsx('快递未匹配订单_'+month,[{name:'待核验订单',rows:[['订单号','店铺','发货时间（缺失时用下单时间）','日期依据','订单运单号','未匹配运单号','订单快递公司','商品','核验状态','三家账单到齐'],...list.map(r=>[r.order_id,r.shop,time(r.at),r.estimatedDate?'含下单时间暂列':'发货时间',r.tracking.join('；'),r.missing.join('；'),r.carrier,r.goods,r.status,all?'是':'否'])]}]);}
+ return <section className="panel"><div className="fr-heading fr-pad"><div><h3>订单未匹配账单 <small>{rows.length} 单</small></h3><p>按所选月的发货订单核对；缺发货时间的按下单月暂列。补齐账单后自动更新。</p></div><button className="button secondary small" onClick={exportRows}><Download size={15}/>导出未匹配订单</button></div><div className="fr-coverage">{FREIGHT_PROFILES.map(p=><span key={p.id} className={'badge '+(complete.has(p.id)?'green':'warm')}>{p.name}：{complete.has(p.id)?'已导入':'待导入'}</span>)}<p>{all?'三家账单已导入。仍未匹配的订单，请核对是否换快递、漏记运单或跨月结算。':'账单尚未到齐，以下为待核验清单，暂不能判断是漏单。'} 账单有、仓库订单没有的运单已跳过。</p></div><div className="table-toolbar"><label className="search-field"><Search size={16}/><input aria-label="搜索未匹配订单" placeholder="订单号、运单号、店铺或商品" value={search} onChange={e=>{setSearch(e.target.value);setPage(1);}}/></label><select aria-label="未匹配类型" value={filter} onChange={e=>{setFilter(e.target.value);setPage(1);}}><option value="all">全部待核验</option><option value="missing">有运单，未匹配账单</option><option value="empty">订单缺运单号</option></select></div><div className="table-scroll"><table><thead><tr><th>订单／店铺</th><th>未匹配运单</th><th>商品</th><th>发货时间</th><th>原因</th></tr></thead><tbody>{list.slice((current-1)*30,current*30).map(r=><tr key={r.key}><td><code>{r.order_id}</code><small>{r.shop}</small></td><td>{r.missing.join('；')||'未填写'}<small>{r.carrier}</small></td><td>{r.goods}</td><td>{time(r.at)}{r.estimatedDate&&<small>含下单时间暂列</small>}</td><td>{r.status}</td></tr>)}</tbody></table></div>{!list.length&&<p className="fr-pad">当前月份和筛选条件下，没有待核验订单。</p>}<div className="table-footer"><span>共 {list.length} 单</span><div><button className="text-btn" disabled={current===1} onClick={()=>setPage(current-1)}>上一页</button><span>{current} / {last}</span><button className="text-btn" disabled={current===last} onClick={()=>setPage(current+1)}>下一页</button></div></div></section>;
+}

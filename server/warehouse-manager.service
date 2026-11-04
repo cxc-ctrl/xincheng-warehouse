@@ -1,0 +1,27 @@
+[Unit]
+Description=Warehouse inventory manager
+After=network.target
+
+[Service]
+Type=simple
+User=warehouse-manager
+Group=warehouse-manager
+WorkingDirectory=/opt/warehouse-manager/current/.next/standalone
+Environment=NODE_ENV=production
+Environment=HOSTNAME=127.0.0.1
+Environment=PORT=18003
+Environment=WAREHOUSE_DATABASE=/opt/warehouse-manager/data/warehouse.sqlite
+Environment=WAREHOUSE_PUBLIC_URL=http://122.51.235.103:8003
+Environment=NEXT_TELEMETRY_DISABLED=1
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/warehouse-manager/data
+
+[Install]
+WantedBy=multi-user.target

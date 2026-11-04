@@ -1,0 +1,125 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1791869167966,
+      "tag": "0000_absurd_penance",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1791886505608,
+      "tag": "0001_wild_grey_gargoyle",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791888541849,
+      "tag": "0002_incremental_paper_counts",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1791946144297,
+      "tag": "0003_misty_thing",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1791948064084,
+      "tag": "0004_permanent_paper_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1791948478384,
+      "tag": "0005_rollback_paper_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1791948617106,
+      "tag": "0006_resume_paper_delete",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1791952175936,
+      "tag": "0007_shared_stock_units",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791952640767,
+      "tag": "0008_movement_units",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1791958997561,
+      "tag": "0009_product_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791973526712,
+      "tag": "0010_inventory_reconciliation",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1792123088931,
+      "tag": "0011_import_test_mode",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1792206175236,
+      "tag": "0012_whole_zarek",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1792207393811,
+      "tag": "0013_remarkable_red_shift",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1792212703408,
+      "tag": "0014_cynical_justice",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1792252800000,
+      "tag": "0015_digit_color_fulfillment",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1792292084698,
+      "tag": "0016_digit_color_quantities",
+      "breakpoints": true
+    }
+  ]
+}

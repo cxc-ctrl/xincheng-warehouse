@@ -1,0 +1,1 @@
+ALTER TABLE `cost_materials` ADD `weight_kg_m2` real;

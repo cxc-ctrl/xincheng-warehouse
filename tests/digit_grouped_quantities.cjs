@@ -1,0 +1,31 @@
+const {assert,load,root,line}=require('./isolated-harness.cjs');
+const path=require('node:path');
+const {remarkColor,fulfillmentPlan}=load(path.join(root,'lib/digit-colors.ts'));
+const colors=['红底白字','蓝底白字','绿底白字','黄底白字','咖啡底白字'];
+const order=(quantity,buyer,seller='')=>({...line('groups','SALE',quantity),spec:'直径3cm 1-10',buyer_remark:buyer,seller_remark:seller,remarks_available:true});
+const parse=(n,b,s='')=>remarkColor(order(n,b,s),colors);
+const expected=(d,value)=>assert.deepEqual(Object.fromEntries(d.allocations.map(a=>[a.color,a.quantity])),value,d.reason);
+const split={'红底白字':2,'蓝底白字':2,'绿底白字':2,'黄底白字':1};
+const note='红、蓝、绿，各2份 黄1份【流星｜10-15 11:48:54】';
+expected(parse(7,note),split);
+expected(parse(7,'咖色',note),split);
+expected(parse(7,'黄1份，红、蓝、绿各2份'),split);
+expected(parse(6,'红、蓝各2份，绿、黄各1份'),{'红底白字':2,'蓝底白字':2,'绿底白字':1,'黄底白字':1});
+expected(parse(7,'红底白字、蓝底白字、绿底白字各两份，黄底白字一份'),split);
+expected(parse(3,'咖色'),{'咖啡底白字':3});
+expected(parse(2,'','咖色2份'),{'咖啡底白字':2});
+expected(parse(1,'咖色白字'),{'咖啡底白字':1});
+expected(parse(3,'红色、咖色各1份，蓝色1份'),{'红底白字':1,'咖啡底白字':1,'蓝底白字':1});
+expected(parse(7,note,'10-21发票'),split);
+for(const [n,badNote] of [[6,note],[8,note],[7,'红、蓝、绿各2份，黄'],[2,'两份是红底白字，蓝底白字各1份'],[2,'红底白字2份 蓝底白字6份各1份'],[2,'红、蓝各0份，黄2份'],[7,'红、蓝、绿各2份，黄1份，5cm']]){
+ assert.equal(parse(n,badNote).allocations.length,0,badNote);
+}
+assert.equal(remarkColor(order(1,'咖色'),['咖啡底白字','咖啡底黑字']).allocations.length,0,'ambiguous coffee colour stays manual');
+const rules=[{sales_code:'SALE',stock_code:'base',per_unit:2}];
+const variants=colors.map((color,i)=>({base_code:'base',color,stock_code:'stock'+i,size:3,start:1,end:10,available_end:100}));
+const stocks=variants.map(v=>({code:v.stock_code,name:v.color,quantity:100,archived:0}));
+const plan=fulfillmentPlan(order(7,note),rules,variants,stocks);
+assert.equal(plan.status,'auto',plan.reason);
+assert.deepEqual(plan.items.map(i=>i.allocated_qty*i.per_unit),[4,4,4,2],'multiply each colour allocation by its physical sheets per sales unit');
+assert.equal(fulfillmentPlan(order(7,note),rules,variants,stocks.map(s=>({...s,quantity:1}))).status,'pending','shortage still needs review');
+console.log('PASS grouped quantities, coffee alias, invoice compatibility, quantity validation and physical stock allocation');

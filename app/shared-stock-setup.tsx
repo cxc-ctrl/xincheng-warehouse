@@ -1,0 +1,46 @@
+"use client";
+import {useState} from "react";
+import {Check,Trash2} from "lucide-react";
+import {PHYSICAL_UNITS,chinaTime,localDateTime,number,packQuantity,stockUnit,time,type Product,type PhysicalStock,type StockRule} from "../lib/model";
+import SalesSkuPicker from "./sales-sku-picker";
+type Link={code:string;per_unit:string;cost:string;packing_cost:string};
+type Props={products:Product[];stocks:PhysicalStock[];rules:StockRule[];prefill:string;busy:boolean;onAction:(body:Record<string,unknown>,message:string)=>Promise<boolean>};
+export default function SharedStockSetup({products,stocks,rules,prefill,busy,onAction}:Props){
+ const initial=products.find(p=>p.code===prefill),initialRules=rules.filter(r=>r.sales_code===prefill);
+ const initialStock=initialRules.length===1?stocks.find(s=>s.code===initialRules[0].stock_code&&!s.archived):undefined;
+ const root=initial?.code.replace(/-\d+$/,"")??"";
+ const [isNew,setNew]=useState(!initialStock),[selected,setSelected]=useState(initialStock?.code??"");
+ const [code,setCode]=useState(root?root+"-STOCK":""),[name,setName]=useState(initial?.name.replace(/[-－]?\d+贴?$/,"")??""),[unit,setUnit]=useState("贴");
+ const [cost,setCost]=useState(""),[location,setLocation]=useState("");
+ const makeLink=(p:Product):Link=>({code:p.code,per_unit:String(initialRules.find(r=>r.sales_code===p.code)?.per_unit??packQuantity(p)??""),cost:p.cost==null?"":String(p.cost),packing_cost:p.packing_cost?String(p.packing_cost):""});
+ const [links,setLinks]=useState<Link[]>(initial?[makeLink(initial)]:[]),[error,setError]=useState("");
+ const [count,setCount]=useState(false),[quantity,setQuantity]=useState(""),[useNow,setUseNow]=useState(true),[at,setAt]=useState(localDateTime());
+ const [align,setAlign]=useState(true),[reviewed,setReviewed]=useState(false);
+ const active=stocks.filter(s=>!s.archived),stock=active.find(s=>s.code===selected),u=isNew?unit:stockUnit(stock);
+ const valid=links.length>0&&links.length<=20&&links.every(l=>Number.isSafeInteger(Number(l.per_unit))&&Number(l.per_unit)>0&&Number(l.per_unit)<=100000)&&(isNew?!!code.trim()&&!!name.trim():!!stock)&&(!count||(quantity.trim()!==""&&Number.isSafeInteger(Number(quantity))&&Number(quantity)>=0));
+ function addMany(items:Product[]){const fresh=items.filter((p,i)=>!links.some(l=>l.code===p.code)&&items.findIndex(item=>item.code===p.code)===i);if(busy||links.length+fresh.length>20){setError("每次最多关联20个销售SKU，请减少勾选数量");return false;}setLinks([...links,...fresh.map(makeLink)]);setReviewed(false);setError("");return true;}
+ function edit(i:number,key:keyof Link,value:string){setLinks(links.map((l,j)=>i===j?{...l,[key]:value}:l));setReviewed(false);}
+ return <form className="shared-setup" onSubmit={e=>{e.preventDefault();if(!valid||!reviewed)return;const now=Date.now(),countAt=useNow?now:chinaTime(at);void onAction({action:"shared_stock_setup",new_stock:isNew,stock:{code:isNew?code:selected,name,unit:u,cost:cost.trim()?Number(cost):null,location,spec:"同款包装共用；一个库存单位代表1"+u,minimum:10},links:links.map(l=>({code:l.code,per_unit:Number(l.per_unit),cost:l.cost.trim()?Number(l.cost):null,packing_cost:l.packing_cost.trim()?Number(l.packing_cost):0})),confirm_count:count,use_now:useNow,count_at:countAt,quantity:count?Number(quantity):null,effective_at:count?countAt:!isNew&&align&&stock?.count_at!=null?stock.count_at:now},"同款包装关联已保存。实物库存只统计一次，销售SKU按自己的包装含量扣减。").then(ok=>{if(ok){setNew(false);setSelected(isNew?code.trim():selected);setLinks([]);setCount(false);setQuantity("");setReviewed(false);}});}}>
+  <section className="panel form-panel">
+   <div className="setup-step"><span>1</span><div><h2>建立一个现货产品</h2><p>仓库只记录这个现货产品的总库存，下面的销售规格按每份含量扣减。不同图案、尺寸或材质分别建立。</p></div></div>
+   <div className="period-toolbar"><button type="button" className={"period "+(isNew?"active":"")} onClick={()=>{setNew(true);setReviewed(false);}}>新建现货产品</button><button type="button" className={"period "+(!isNew?"active":"")} onClick={()=>{setNew(false);setReviewed(false);}}>选择已有现货产品</button></div>
+   {isNew?<><div className="form-grid"><label>现货产品编码<input required value={code} maxLength={160} onChange={e=>{setCode(e.target.value);setReviewed(false);}} placeholder="例如：LCTZ-YLK"/></label><label>现货产品名称<input required value={name} maxLength={300} onChange={e=>{setName(e.target.value);setReviewed(false);}} placeholder="例如：冷藏贴纸A款"/></label><label>库存单位<select value={unit} onChange={e=>{setUnit(e.target.value);setReviewed(false);}}>{PHYSICAL_UNITS.map(u=><option key={u}>{u}</option>)}</select><small>按散贴总数盘点选“贴”；按整版纸盘点选“张”。</small></label><details className="advanced-settings"><summary>更多设置：实物成本与库位</summary><div className="form-grid"><label>每{unit}实物成本（可留空）<input type="number" min="0" step="any" value={cost} onChange={e=>{setCost(e.target.value);setReviewed(false);}}/></label><label>库位（可留空）<input value={location} onChange={e=>setLocation(e.target.value)}/></label></div></details></div></>:<label>选择现货产品<select required value={selected} onChange={e=>{setSelected(e.target.value);setReviewed(false);}}><option value="">请选择</option>{active.map(s=><option key={s.code} value={s.code}>{s.name} · {s.code} · {stockUnit(s)}</option>)}</select>{stock&&<small>当前实物：{number(stock.quantity)} {u}；{stock.count_at==null?"待盘点": "起算："+time(stock.count_at)}。不勾选重新盘点，会保留数量与时间。</small>}</label>}
+  </section>
+  <section className="panel form-panel">
+   <div className="setup-step"><span>2</span><div><h2>选择销售规格，填写每份含量</h2><p>识别已录入的销售规格，在名称后核对每份数量。48、500、1000等包装含量会优先从资料预填。</p></div></div>
+   <SalesSkuPicker products={products} addedCodes={links.map(l=>l.code)} suggestedQuery={root||links[0]?.code.replace(/-\d+$/,"")||(isNew?code.trim():selected).replace(/-STOCK$/,"")} busy={busy} onAdd={addMany}/>
+   {error&&<p className="negative" role="alert">{error}</p>}
+   <div className="table-scroll shared-spec-table"><table><thead><tr><th>销售规格名称</th><th>每份含量（{u}）</th><th>操作</th></tr></thead><tbody>{links.map((l,i)=>{const p=products.find(p=>p.code===l.code);return <tr key={l.code}><td><strong>{p?.name}</strong><small>{p?.pack||"包装含量待填写"}</small><code>{l.code}</code>{p?.tracking_enabled===0&&<small>合并后启用库存管理</small>}</td><td><input required aria-label={l.code+"每份含量"} type="number" min="1" max="100000" step="1" value={l.per_unit} onChange={e=>edit(i,"per_unit",e.target.value)}/><small>卖2份扣{l.per_unit?number(Number(l.per_unit)*2):"待填写"}{u}</small></td><td><button type="button" className="icon-btn" aria-label={"取消关联"+l.code} onClick={()=>{setLinks(links.filter((_,j)=>i!==j));setReviewed(false);}}><Trash2 size={16}/></button></td></tr>;})}</tbody></table></div>
+   <details className="advanced-settings"><summary>更多设置：各销售规格成本</summary><div className="table-scroll"><table><thead><tr><th>销售规格</th><th>每份完整成本（元）</th><th>换算时额外包装人工（元）</th></tr></thead><tbody>{links.map((l,i)=><tr key={l.code}><td>{products.find(p=>p.code===l.code)?.name}</td><td><input aria-label={l.code+"每份完整成本"} type="number" min="0" step="any" value={l.cost} placeholder="留空：按实物成本换算" onChange={e=>edit(i,"cost",e.target.value)}/></td><td><input aria-label={l.code+"包装人工成本"} type="number" min="0" step="any" value={l.packing_cost} disabled={l.cost.trim()!==""} onChange={e=>edit(i,"packing_cost",e.target.value)}/></td></tr>)}</tbody></table></div><p className="muted">完整成本保留各包装原值。留空时按实物消耗乘单位成本，加包装人工换算；已有完整成本不重复加费用。</p></details>
+   <p className="paper-footnote">原销售名称和ERP编码保留，销量分别统计；仓库只显示一份现货库存。数字贴一份需要多种版面时，请用“多实物关联”。</p>
+  </section>
+  <section className="panel form-panel">
+   <div className="setup-step"><span>3</span><div><h2>最后确认这个现货产品的总库存</h2><p>可以先保存关联，等仓库盘点后再确认数量。未盘点的实物保留未知，不填0。</p></div></div>
+   <label className="confirmation-choice"><input type="checkbox" checked={count} onChange={e=>{setCount(e.target.checked);setReviewed(false);}}/>{isNew?"录入现货产品的真实总库存":"重新盘点现货产品（所有销售规格共用这次数量）"}</label>
+   {count?<><label>本次实际总数（{u}）<input required type="number" min="0" step="1" value={quantity} onChange={e=>{setQuantity(e.target.value);setReviewed(false);}}/></label><label className="confirmation-choice"><input type="checkbox" checked={useNow} onChange={e=>{setUseNow(e.target.checked);setAt(localDateTime());setReviewed(false);}}/>按本次保存时间起算</label>{!useNow&&<label>实际盘点时间<input required type="datetime-local" max={localDateTime()} value={at} onChange={e=>{setAt(e.target.value);setReviewed(false);}}/></label>}</>:stock?.count_at!=null?<><label className="confirmation-choice"><input type="checkbox" checked={align} onChange={e=>{setAlign(e.target.checked);setReviewed(false);}}/>新关联从这份实物的盘点时间起算：{time(stock.count_at)}</label><p className="muted">勾选会补处理盘点后、尚未扣减的有效订单，已扣明细不重复扣。取消则从本次保存起算，之前的订单仅作销售记录。已使用且相同的规则保留原起算时间。</p></>:<p className="note-box">本次只保存关联。之后盘点实物时，从那次实盘时间起扣库存。</p>}
+   {links.length>0&&<div className="selected-sku"><div><strong>保存前核对：共用一份实物库存</strong>{links.map(l=><small key={l.code}>{l.code}：卖1份扣{l.per_unit||"待填"}{u}；卖2份扣{l.per_unit?number(Number(l.per_unit)*2):"待填"}{u}</small>)}</div></div>}
+   <label className="confirmation-choice"><input type="checkbox" checked={reviewed} onChange={e=>setReviewed(e.target.checked)}/>我已确认是同一种实物，并核对包装含量、库存单位、成本和起算时间</label>
+   <button className="button primary" disabled={busy||!valid||!reviewed}><Check size={16}/>{busy?"保存中…":"保存现货产品与销售规格"}</button>
+  </section>
+ </form>;
+}

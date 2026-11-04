@@ -1,0 +1,24 @@
+const {assert,load,root,line}=require('./isolated-harness.cjs');
+const {remarkColor,COLOR_NAMES}=load(root+'/lib/digit-colors.ts');
+const parse=(note,n=8,spec='3cm 1-10',colors=COLOR_NAMES)=>remarkColor({...line('four','SKU',n),title:'数字贴',spec,buyer_remark:note,seller_remark:'',remarks_available:true},colors);
+const map=r=>Object.fromEntries(r.allocations.map(a=>[a.color,a.quantity]));
+assert.deepEqual(map(parse('红底 蓝底\n绿底 黄底 都要白字 各两份')),{'红底白字':2,'蓝底白字':2,'绿底白字':2,'黄底白字':2});
+assert.deepEqual(map(parse('玫红底色',1,'1cm 1-50')),{'玫红底白字':1});
+assert.equal(parse('红底 蓝底 绿底 黄底 都要白字 各两份',7).allocations.length,0);
+assert.equal(parse('红底 蓝底 都要黑字 各1份',2).allocations.length,0);
+assert.equal(parse('红底 蓝底 不要白字 各1份',2).allocations.length,0);
+assert.equal(parse('红底 蓝底 都要白字 各2份 5cm',4).allocations.length,0);
+assert.equal(parse('玫红底色',1,'1cm 1-50',['玫红底白字','玫红底黑字']).allocations.length,0);
+const multi='1厘米的蓝色和红色各两套，3厘米1到20的要红色，3厘米1到80的要蓝色，谢谢';
+assert.deepEqual(map(parse(multi,4,'1cm 1-100')),{'蓝底白字':2,'红底白字':2});
+assert.deepEqual(map(parse(multi,4,'1cm 1-100',['蓝底白字','红底白字'])),{'蓝底白字':2,'红底白字':2});
+assert.deepEqual(map(parse(multi,1,'3cm 1-80',['蓝底白字','红底白字'])),{'蓝底白字':1});
+assert.deepEqual(map(parse('蓝绿黑紫粉各1组，直径要10厘米的',5,'10cm 1-70')),{'蓝底白字':1,'绿底白字':1,'黑底白字':1,'紫色白字':1,'玫红底白字':1});
+assert.deepEqual(map(parse('红底黄字',1,'1cm 1-100')),{'红底黄字':1});
+assert.deepEqual(map(parse('粉底白字',1)),{'玫红底白字':1});
+assert.equal(parse('粉底黑字',1).allocations.length,0);
+console.log('PASS four screenshot cases: shared foreground, background wording, scoped multi-SKU clauses, quantity/size checks and ambiguous colour protection');
+
+assert.deepEqual(map(parse('绿色1-30 8套 黄色1-30 10套',18,'3cm 1-30')),{'绿底白字':8,'黄底白字':10});
+assert.equal(parse('绿色1-30 8套 黄色1-30 10套',17,'3cm 1-30').allocations.length,0);
+assert.equal(parse('发40-70',1,'5cm 1-30').allocations.length,0);

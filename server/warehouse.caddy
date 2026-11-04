@@ -1,0 +1,18 @@
+http://:8003 {
+    encode zstd gzip
+    # Public access explicitly requested by the warehouse owner.
+    request_body {
+        max_size 2MB
+    }
+    reverse_proxy 127.0.0.1:18003 {
+        # Set every identity field used by the app, replacing client values.
+        header_up -Authorization
+        header_up Oai-Authenticated-User-Id local_seedy
+        header_up Oai-Authenticated-User-Email warehouse@local.internal
+        header_up Oai-Authenticated-User-Full-Name Warehouse
+        header_up Oai-Authenticated-User-Full-Name-Encoding percent-encoded-utf-8
+    }
+    header X-Content-Type-Options nosniff
+    header X-Frame-Options DENY
+    header Referrer-Policy same-origin
+}
