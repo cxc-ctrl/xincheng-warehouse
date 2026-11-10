@@ -1,0 +1,13 @@
+const {assert,load,root}=require('./isolated-harness.cjs'),path=require('node:path');
+const {associationIssue}=load(path.join(root,'lib/inventory-association.ts'));
+const stock={code:'CLXH-AXTZ02-STOCK',name:'爱心贴纸B款-混合',spec:'同款包装共用；一个库存单位代表1贴',unit:'贴'};
+const sku=(n,size='5x4cm',style='B')=>({code:`CLXH-AXTZ02-${n}`,name:`爱心贴纸${style}款-混合${n}贴`,pack:n+'贴',spec:size,size,category:'贴纸',material:'铜版纸不干胶'});
+const remaining=[sku(180),sku(60)];
+assert.equal(associationIssue(stock,remaining,remaining),'','legacy unit note must not block saving retained rows after removals');
+assert.equal(associationIssue(stock,[],[]),'','removing all links is supported');
+assert.match(associationIssue(stock,[sku(60,'6x4cm'),sku(180)],[]),/尺寸不同/);
+assert.match(associationIssue({...stock,spec:'6x4cm'},remaining,remaining),/尺寸与当前库存规格不同/);
+assert.match(associationIssue({...stock,spec:stock.spec+'；尺寸6x4cm'},remaining,remaining),/尺寸与当前库存规格不同/,'do not ignore appended real size');
+assert.match(associationIssue(stock,[sku(60,'5x4cm','C'),sku(180)],[]),/款式不同/);
+assert.equal(associationIssue({...stock,spec:'5×4厘米'},remaining,remaining),'');
+console.log('PASS: legacy unit descriptions save; real size/style conflicts still blocked; full unlink supported');

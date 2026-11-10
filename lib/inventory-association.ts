@@ -23,7 +23,9 @@ export function associationIssue(stock:Pick<PhysicalStock,"name"|"spec"|"unit">&
  if(materials.size>1)return "这些SKU的材质不同，请分别建立库存。";
  if(checkName&&!linked.length&&selected.length&&stock.name&&normalizeSpec(salesBaseName(stock.name))!==normalizeSpec(productBaseName(selected[0]))&&stock.code?.replace(/-STOCK$/,"")!==salesRootCode(selected[0]))return "销售SKU的款式名称与当前库存不同，请核对或新增独立库存。";
  const size=all.find(p=>p.size||p.spec)?.size||all.find(p=>p.spec)?.spec;
- if(size&&stock.spec&&normalizeSpec(size)!==normalizeSpec(stock.spec))return "销售SKU的尺寸与当前库存规格不同，请核对后分别管理。";
+ // Legacy synced stocks used this field for a unit explanation, not a size.
+ const stockSpec=/^同款包装共用[；;]\s*一个库存单位代表\s*\d+\s*(?:贴|枚|张|个|件|包|卷|套|份)\s*$/.test(stock.spec.trim())?"":stock.spec;
+ if(size&&stockSpec&&normalizeSpec(size)!==normalizeSpec(stockSpec))return "销售SKU的尺寸与当前库存规格不同，请核对后分别管理。";
  return "";
 }
 export type AssociationGroup={key:string;stock:Pick<PhysicalStock,"code"|"name"|"spec"|"unit">;existing:boolean;products:Product[]};
