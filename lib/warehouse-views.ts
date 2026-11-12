@@ -1,4 +1,5 @@
 import {isUnmatchedOrder} from './order-review-filters';
+import {uncountedInventory} from './uncounted-inventory';
 import {readAlertPolicy} from './stock-alert-policy';
 import type {AlertDemandContext} from './alert-demand';
 import type {DigitVariant} from './digit-colors';
@@ -16,7 +17,7 @@ import {warehouseCatalog,inventoryLedger,recipeStock,stockReadiness,summarize,ty
 
 export const WAREHOUSE_VIEWS=['ignoreRules','dashboard','stockAlerts','products','paper','purchasing','digitRules','history','shops','printing','import','analysis','freightCheck','all','order','inventoryExport'] as const;
 export type WarehouseView=typeof WAREHOUSE_VIEWS[number];
-export type DashboardSummary={stockAlerts:StockAlertSnapshot;skuCount:number;categories:number;counted:number;link:number;count:number;uncounted:number;qty:number;orderCount:number;alerts:number;reviews:number;unmatched:number;orderAttention:number;top:{code:string;name:string;qty:number}[];movements:{id:string;code:string;name:string;type:string;delta:number;unit:string;note:string;at:number}[];asOf:number};
+export type DashboardSummary={stockAlerts:StockAlertSnapshot;skuCount:number;categories:number;counted:number;link:number;count:number;uncounted:number;excludedUncounted?:number;qty:number;orderCount:number;alerts:number;reviews:number;unmatched:number;orderAttention:number;top:{code:string;name:string;qty:number}[];movements:{id:string;code:string;name:string;type:string;delta:number;unit:string;note:string;at:number}[];asOf:number};
 
 async function catalog(d:D1Database,scope:string,images=true){
  const r=await d.batch([d.prepare('SELECT * FROM products WHERE scope=? ORDER BY category,name,code').bind(scope),d.prepare('SELECT * FROM physical_stocks WHERE scope=? ORDER BY name,code').bind(scope),d.prepare('SELECT sales_code,stock_code,per_unit FROM stock_rules WHERE scope=? ORDER BY sales_code,stock_code').bind(scope)]);
@@ -54,7 +55,7 @@ export function dashboardSummary(c:{products:Product[];physical:PhysicalStock[];
  const reviewOrders=s.orders.filter(o=>o.review===1||o.fulfillment_mode!=='print'&&o.digit_status==='pending'&&(o.shipped_qty??0)>0||conflicts.has(o.key)||cutoffTime(o,pmap.has(o.code)?[pmap.get(o.code)!]:[],c.physical,bySku.get(o.code)??[],s.importTestMode)!=null);
  const reviews=new Set([...reviewOrders.map(o=>o.key),...(s.importConflicts??[]).map(o=>o.order_key)]).size,unmatchedOrders=s.orders.filter(o=>isUnmatchedOrder(o,pmap)),unmatched=unmatchedOrders.length,orderAttention=new Set([...reviewOrders.map(o=>o.key),...unmatchedOrders.map(o=>o.key),...(s.importConflicts??[]).map(o=>o.order_key)]).size;
  const stockAlerts=buildStockAlerts(c.products,c.physical,c.rules,s.orders,purchases,now,policy);
- return {stockAlerts:{...stockAlerts,otherRows:[],ignoredRows:[],partial:true},skuCount:warehouse.products.length,categories:new Set(warehouse.products.map(p=>p.category)).size,counted:stats.counted,link:states.filter(s=>s.label==='待关联'||s.label==='关联需修复').length,count:states.filter(s=>s.label.includes('盘点')).length,uncounted:ledger.filter(r=>r.quantity==null).length,qty:stats.qty,orderCount:s.orders.length,alerts:stockAlerts.rows.length,reviews,unmatched,orderAttention,top:[...stats.sales.entries()].filter(([code,s])=>s.qty>0&&!digitCodes.has(code)).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5).map(([code,s])=>({code,name:pmap.get(code)?.name||code||'未填编码',qty:s.qty})),movements:recent.map(m=>({...m,name:(m.kind==='physical'?smap.get(m.code)?.name:pmap.get(m.code)?.name)||m.code,unit:m.unit||(m.kind==='physical'?smap.get(m.code)?.unit:pmap.get(m.code)?.unit)||''})),asOf:now};
+ return {stockAlerts:{...stockAlerts,otherRows:[],ignoredRows:[],partial:true},skuCount:warehouse.products.length,categories:new Set(warehouse.products.map(p=>p.category)).size,counted:stats.counted,link:states.filter(s=>s.label==='待关联'||s.label==='关联需修复').length,count:states.filter(s=>s.label.includes('盘点')).length,uncounted:ledger.filter(r=>r.quantity==null).length,excludedUncounted:uncountedInventory(c.products,c.physical,c.rules).filter(r=>!r.included).length,qty:stats.qty,orderCount:s.orders.length,alerts:stockAlerts.rows.length,reviews,unmatched,orderAttention,top:[...stats.sales.entries()].filter(([code,s])=>s.qty>0&&!digitCodes.has(code)).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5).map(([code,s])=>({code,name:pmap.get(code)?.name||code||'未填编码',qty:s.qty})),movements:recent.map(m=>({...m,name:(m.kind==='physical'?smap.get(m.code)?.name:pmap.get(m.code)?.name)||m.code,unit:m.unit||(m.kind==='physical'?smap.get(m.code)?.unit:pmap.get(m.code)?.unit)||''})),asOf:now};
 }
 export async function readFastWarehouseView(d:D1Database,scope:string,user:string,view:WarehouseView,key?:string){
  if(view==='dashboard'||view==='stockAlerts'){
@@ -72,7 +73,7 @@ export async function readFastWarehouseView(d:D1Database,scope:string,user:strin
   const settings=await d.prepare('SELECT import_test_mode FROM warehouse_settings WHERE scope=?').bind(scope).first<{import_test_mode:number}>();
   const shops=await readShopData(d,scope);
   const result:Record<string,unknown>={user,...c,...await readCostSettings(d,scope),importTestMode:settings?.import_test_mode===1,shopPending:shops.shopPending,shopHeldTotal:shops.shopHeldTotal};
-  if(view==='products')Object.assign(result,await stockOrders(d,scope));
+  if(view==='products')Object.assign(result,await stockOrders(d,scope),await digitConfig(d,scope));
   if(view==='digitRules'||view==='order')Object.assign(result,await digitConfig(d,scope),await readNamedPrintRules(d,scope));
   if(view==='history')Object.assign(result,{movements:await movements(d,scope),batches:(await d.prepare('SELECT * FROM batches WHERE scope=? ORDER BY created_at DESC LIMIT 30').bind(scope).all()).results});
   if(view==='order'){if(!key||key.length>1000)throw new Error('订单标识无效');Object.assign(result,{orderRefresh:await readOrderRefresh(d,scope,{key})});}

@@ -1,0 +1,14 @@
+const {assert,load,root}=require('./isolated-harness.cjs'),path=require('node:path');
+const {uncountedInventory}=load(path.join(root,'lib/uncounted-inventory.ts'));
+const p={code:'PRINT',name:'打印SKU',supply_mode:'打印定制',stock_mode:'recipe',tracking_enabled:1};
+const stocks=[['IN',103,108],['EDGE',199,204],['OUT',205,210]].map(([code,start,end])=>({code,name:`红底白字10cm数字贴（${start}～${end}）`,spec:'10cm',unit:'张',quantity:null,archived:0}));
+const variants=stocks.map((s,i)=>({base_code:s.code,stock_code:s.code,color:'红底白字',size:10,start:[103,199,205][i],end:[108,204,210][i],available_end:200}));
+const rules=stocks.map(s=>({sales_code:p.code,stock_code:s.code,per_unit:1})),conditions=[{color:'红底白字',size:10,start:1,end:200,enabled:1}];
+const input=JSON.stringify({p,stocks,rules,variants,conditions});
+let rows=uncountedInventory([p],stocks,rules,variants,conditions);
+assert.equal(rows.length,3);assert(rows.every(r=>!r.included));assert.equal(rows[0].status,'备货范围内，分类待核对');assert.equal(rows[1].status,'备货范围内，分类待核对','199-204 overlaps configured end=200');assert.equal(rows[2].status,'不备货／超出范围');
+assert.equal(JSON.stringify({p,stocks,rules,variants,conditions}),input,'read-only view never changes inputs');
+rows=uncountedInventory([{...p,supply_mode:'仓库囤货'}],stocks,rules,variants,conditions);assert.equal(rows.filter(r=>r.included).length,3);assert.equal(rows.length,3,'no double count');
+assert.equal(uncountedInventory([p],stocks.map(s=>({...s,quantity:0})),rules,variants,conditions).length,0,'confirmed zero is not uncounted');
+assert.equal(uncountedInventory([p],stocks.map(s=>({...s,archived:1})),rules,variants,conditions).length,0,'removed stock remains separate');
+console.log('PASS: excluded boards visible, range boundary 200 handled, zero/archived/dedup rules correct, inputs unchanged');
