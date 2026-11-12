@@ -1,5 +1,6 @@
 import {chinaTime,isValid,type OrderLine} from './model';
 import {appendOrderImport} from './order-actions';
+import {ignoredOrderCode} from './order-scope';
 import {appendAutoPrintAccounting} from './print-accounting';
 import {readOrderRefresh} from './order-refresh';
 import type {ShopData,Shop,ShopVersion,ShopAssignment,ShopPending,ShopPolicy} from './shops';
@@ -54,7 +55,7 @@ export async function appendShopAction(b:Record<string,any>,d:D1Database,scope:s
  }
  if(b.action==='shop_hold_import'){
   if(!Array.isArray(b.lines)||!b.lines.length||b.lines.length>40)throw new Error('每次暂存1～40条订单');const filename=v.str(b.filename,300);
-  for(const line of b.lines){if(typeof line.shop!=='string'||line.shop.trim()||!line.order_id||typeof line.platform!=='string'||typeof line.code!=='string'||!Number.isSafeInteger(line.quantity)||line.quantity<=0)throw new Error('仅暂存店铺为空的有效订单行');
+  for(const line of b.lines){if(ignoredOrderCode(line.code))continue;if(typeof line.shop!=='string'||line.shop.trim()||!line.order_id||typeof line.platform!=='string'||typeof line.code!=='string'||!Number.isSafeInteger(line.quantity)||line.quantity<=0)throw new Error('仅暂存店铺为空的有效订单行');
    const payload=JSON.stringify(line);if(payload.length>30000)throw new Error('暂存订单文字过长');const id=await hash(JSON.stringify([scope,line.platform,line.order_id,line.code||line.title+':'+line.spec]));
    ss.push(d.prepare(`INSERT INTO shop_held_orders SELECT ?,?,?,?,'pending','',? WHERE ${guard} ON CONFLICT(scope,id) DO UPDATE SET payload=excluded.payload,filename=excluded.filename,status='pending',updated_at=excluded.updated_at WHERE shop_held_orders.status='pending' OR shop_held_orders.payload<>excluded.payload`).bind(scope,id,payload,filename,now,scope,rid));
   }return true;

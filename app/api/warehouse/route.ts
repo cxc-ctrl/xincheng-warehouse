@@ -29,6 +29,7 @@ import {appendInventoryGrouping} from "../../../lib/inventory-grouping-actions";
 import { appendInventoryCount } from "../../../lib/count-actions";
 import {appendRevokeCount} from "../../../lib/revoke-count";
 import {appendOrderImport,appendOrderReview,appendCostSnapshot} from "../../../lib/order-actions";
+import {ignoredOrderCode,IGNORED_ORDER_REASON} from '../../../lib/order-scope';
 import {appendInventoryAssociation} from "../../../lib/inventory-association-actions";
 import {readProductRefresh} from "../../../lib/product-refresh";
 import {appendProductDelete,deletedProductResult} from "../../../lib/product-delete";
@@ -165,6 +166,8 @@ export async function POST(req:Request):Promise<Response>{try{
   // other requests must retain their normal time boundary even in test mode.
   if(testMode)statements.push(d.prepare(`UPDATE warehouse_settings SET active_test_import=1 WHERE scope=? AND ${guard}`).bind(scope,scope,rid));
   if(new Set(b.lines.map((o:OrderLine)=>o.key)).size!==b.lines.length)throw new Error("同一批次的订单明细重复");
+  for(const o of b.lines.filter((o:OrderLine)=>ignoredOrderCode(o.code)))statements.push(d.prepare(`INSERT INTO ignored_order_lines(scope,order_key,shop,order_id,code,payload,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE ${guard} ON CONFLICT(scope,order_key) DO NOTHING`).bind(scope,o.key,o.shop,o.order_id,o.code,JSON.stringify(o),IGNORED_ORDER_REASON,now,scope,rid));
+  b.lines=b.lines.filter((o:OrderLine)=>!ignoredOrderCode(o.code));
   const pendingStaged=new Set((await d.prepare("SELECT order_key FROM import_conflict_groups WHERE scope=? AND status='pending' AND order_key IN(SELECT value FROM json_each(?))").bind(scope,JSON.stringify(b.lines.map((o:OrderLine)=>o.key))).all<{order_key:string}>()).results.map(r=>r.order_key));
   b.lines=b.lines.filter((o:OrderLine)=>!pendingStaged.has(o.key));
   d=await importReadContext(d,scope,b.lines);

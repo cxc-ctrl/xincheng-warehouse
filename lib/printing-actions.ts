@@ -27,10 +27,14 @@ async function transfer(b:Record<string,any>,d:D1Database,scope:string,now:numbe
  if(job?.accounting_mode==='sku')throw new Error('这张订单按SKU自动核算数码打印费用，现货商品继续按库存处理，无需整单转打印');
  if(b.action!=='digit_print'&&(b.basis!==printBasis(lines)||(job?.updated_at??0)!==b.updated_at))throw new Error('整单资料已变化，请刷新后重试');
  const note=text(b.note??b.print_note,'打印说明');if(!note)throw new Error('请填写整单打印说明');
+ const inlineCost=b.total_cost!==undefined;
+ if(inlineCost&&(b.total_cost==null||String(b.total_cost).trim()===''))throw new Error('请填写整单货品总成本');
+ const goodsCost=inlineCost?cents(b.total_cost,'整单货品总成本'):null;
+ if(goodsCost===0&&b.confirm_zero_cost!==true)throw new Error('请确认整单货品成本确实为0元');
  if(await d.prepare('SELECT 1 FROM order_conflicts c JOIN orders o ON o.scope=c.scope AND o.key=c.order_key WHERE o.scope=? AND o.shop=? AND o.order_id=? LIMIT 1').bind(scope,shop,id).first())throw new Error('整单内有ERP数据冲突，请先核对');
  if(await d.prepare('SELECT 1 FROM order_returns r JOIN orders o ON o.scope=r.scope AND o.key=r.order_key WHERE o.scope=? AND o.shop=? AND o.order_id=? LIMIT 1').bind(scope,shop,id).first())throw new Error('整单已有退货入库，不能直接转打印，请先核对库存流水');
  const used=(await d.prepare("SELECT 'physical' kind,os.stock_code code,SUM(os.deducted_qty) quantity FROM order_stocks os JOIN orders o ON o.scope=os.scope AND o.key=os.order_key WHERE o.scope=? AND o.shop=? AND o.order_id=? AND os.reset=0 AND os.deducted_qty>0 GROUP BY os.stock_code UNION ALL SELECT 'product',o.code,SUM(o.deducted_qty) FROM orders o WHERE o.scope=? AND o.shop=? AND o.order_id=? AND o.reset=0 AND o.deducted_qty>0 GROUP BY o.code").bind(scope,shop,id,scope,shop,id).all<{kind:'physical'|'product';code:string;quantity:number}>()).results;
- if(used.length&&b.stock_returned!==true&&b.quick!==true)throw new Error('该订单已有现货扣减，请确认全部未领出或已归还，再整单转打印');
+ if(used.length&&b.stock_returned!==true&&(inlineCost||b.quick!==true))throw new Error('该订单已有现货扣减，请确认全部未领出或已归还，再整单转打印');
  guardRows(d,scope,shop,id,lines,rid,ss,guard);
  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND COALESCE((SELECT updated_at FROM print_jobs WHERE scope=? AND shop=? AND order_id=?),0)<>? THEN json('打印任务已变化') ELSE 1 END`).bind(scope,rid,scope,shop,id,job?.updated_at??0));
  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (EXISTS(SELECT 1 FROM order_returns r JOIN orders o ON o.scope=r.scope AND o.key=r.order_key WHERE o.scope=? AND o.shop=? AND o.order_id=?) OR EXISTS(SELECT 1 FROM order_conflicts c JOIN orders o ON o.scope=c.scope AND o.key=c.order_key WHERE o.scope=? AND o.shop=? AND o.order_id=?)) THEN json('整单核对状态已变化') ELSE 1 END`).bind(scope,rid,scope,shop,id,scope,shop,id));
@@ -52,6 +56,11 @@ async function transfer(b:Record<string,any>,d:D1Database,scope:string,now:numbe
  for(const o of lines)ss.push(d.prepare(`INSERT INTO digit_fulfillments(scope,order_key,status,color,reason,signature,updated_at) SELECT ?,?,'print',?,'整张订单所有商品统一打印；实际成本在数码打印录入',?,? WHERE ${guard} ON CONFLICT(scope,order_key) DO UPDATE SET status='print',color=excluded.color,reason=excluded.reason,signature=excluded.signature,updated_at=excluded.updated_at`).bind(scope,o.key,note,digitSignature(o),now,scope,rid));
  ss.push(d.prepare(`UPDATE orders SET deducted_qty=0,reset=1,unit_cost_snapshot=NULL,updated_at=? WHERE scope=? AND shop=? AND order_id=? AND ${guard}`).bind(now,scope,shop,id,scope,rid));
  audit(d,scope,shop,id,'整单转打印',note+'；全部 '+lines.length+' 项商品；现货校正 '+used.length+' 项',now,rid,ss,guard);
+ if(inlineCost){
+  const quantity=lines.reduce((n,o)=>n+o.quantity,0);
+  ss.push(d.prepare(`UPDATE print_jobs SET cost_source='manual',status='done',actual_quantity=?,unit='份',cost_cents=?,completed_at=?,estimate_snapshot=NULL,basis=?,needs_review=0,updated_at=? WHERE scope=? AND shop=? AND order_id=? AND ${guard}`).bind(quantity,goodsCost,job?.completed_at??now,printBasis(lines),now,scope,shop,id,scope,rid));
+  audit(d,scope,shop,id,'打印成本',JSON.stringify({previous_cost_cents:job?.cost_cents??null,cost_cents:goodsCost,quantity,unit:'份',note,source:'整单转打印同时录入'}),now,rid,ss,guard);
+ }
 }
 async function saveCost(b:Record<string,any>,d:D1Database,scope:string,now:number,rid:string,ss:D1PreparedStatement[],guard:string){
  const shop=text(b.shop,'店铺',160),id=text(b.order_id,'订单号',160),job=await d.prepare('SELECT * FROM print_jobs WHERE scope=? AND shop=? AND order_id=?').bind(scope,shop,id).first<PrintJob>();if(!job||job.updated_at!==b.updated_at)throw new Error('打印任务已变化，请刷新：'+id);

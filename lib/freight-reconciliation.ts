@@ -4,7 +4,7 @@ export type FreightBill={tracking:string;month:string;carrier:string;fee_cents:n
 export type FreightPeriod={month:string;packing_cents:number|null;updated_at:number};
 export type FreightImport={id:string;month:string;filename:string;total:number;skipped:number;processed:number;complete:number;created_at:number;carrier_profile?:string};
 export type PackingSettings={fee_cents:number|null;updated_at:number};
-export type FreightData={pendingImportOrders?:string[];packingSettings?:PackingSettings;freightBills:FreightBill[];freightPeriods:FreightPeriod[];freightImports:FreightImport[]};
+export type FreightData={ignoredSkuOrders?:string[];pendingImportOrders?:string[];packingSettings?:PackingSettings;freightBills:FreightBill[];freightPeriods:FreightPeriod[];freightImports:FreightImport[]};
 export const EMPTY_FREIGHT:FreightData={freightBills:[],freightPeriods:[],freightImports:[]};
 export const monthOf=(at:number)=>new Date(at+8*3600000).toISOString().slice(0,7);
 export function validMonth(v:string){if(!/^20\d{2}-(0[1-9]|1[0-2])$/.test(v))throw new Error('请选择有效的账单月份');return v;}
@@ -41,6 +41,7 @@ export function buildFreightAnalysis(orders:OrderLine[],data:FreightData,returnK
   const tracking=[...new Set(lines.flatMap(o=>o.tracking_numbers??[]))].sort(),matched=tracking.map(w=>bills.get(w)).filter((b):b is FreightBill=>!!b),months=[...new Set(matched.map(b=>b.month))].sort();
   const month=months[0]??monthOf(Math.min(...lines.map(o=>o.shipped_at??o.order_time))),reasons:string[]=[],drivers:string[]=[];
   if(data.pendingImportOrders?.includes(key))reasons.push('导入冲突待复核，订单成本及金额未齐');
+  if(data.ignoredSkuOrders?.includes(key))reasons.push('同单含暂不纳入仓库商品，金额及费用需核对');
   const unique=(values:(number|null|undefined)[],label:string,required=false)=>{const set=new Set(values.filter((v):v is number=>v!=null).map(n=>Math.round(n*100)));if(set.size>1)reasons.push(label+'在订单明细中不一致');if(!set.size&&required)reasons.push('缺'+label);return set.size===1?[...set][0]:null;};
   const payment=unique(lines.map(o=>o.amount),'付款金额'),refund=unique(lines.map(o=>o.refund_amount),'退款金额'),providedNet=unique(lines.map(o=>o.net_amount),'净实收金额');
   if(providedNet!=null&&payment!=null&&refund!=null&&providedNet!==payment-refund)reasons.push('净实收与付款减退款不一致');

@@ -9,7 +9,7 @@ export function toggleOrderFilter(selected:OrderFilter[],key:OrderFilter):OrderF
  if(key==='all')return selected.includes('all')?[]:['all'];
  const next=selected.filter(x=>x!=='all');return next.includes(key)?next.filter(x=>x!==key):[...next,key];
 }
-export function isUnmatchedOrder(order:Pick<OrderLine,'status'|'code'>,known:ReadonlyMap<string,unknown>){return isValid(order.status)&&!known.has(order.code);}
+export function isUnmatchedOrder(order:Pick<OrderLine,'status'|'code'|'fulfillment_mode'>,known:ReadonlyMap<string,unknown>){return isValid(order.status)&&order.fulfillment_mode!=='print'&&!known.has(order.code);}
 export function indexOrderFilters(orders:OrderLine[],choices:Map<string,{status:string}>,issues:Map<string,DigitIssue>,known:ReadonlyMap<string,unknown>,reviews:Set<string>){
  const seen=new Set<string>(),rows:{order:OrderLine;filters:Set<OrderFilter>}[]=[];
  const counts=Object.fromEntries([...MAIN_ORDER_FILTERS,...EXTRA_ORDER_FILTERS].map(([id])=>[id,0])) as Record<OrderFilter,number>;
