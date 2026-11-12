@@ -3,13 +3,16 @@ import {isValid,isPrintOnly,type OrderLine,type PhysicalStock,type StockRule,typ
 import {readDigitConditions,type DigitCondition} from './warehouse-digit-conditions';
 import {readRemarkRules} from './digit-remark-actions';
 import type {DigitRemarkRule} from './digit-remark-rules';
-export function historicalCounted(o:OrderLine,f:Pick<DigitFulfillment,'status'|'reason'|'signature'|'fixed_groups'>,p:Product|undefined,rules:StockRule[],stocks:PhysicalStock[],variants:DigitVariant[],conditions:DigitCondition[],remarks:DigitRemarkRule[]){
+type RecognitionCache={plans:Map<string,ReturnType<typeof fulfillmentPlan>>;stocks:Map<string,PhysicalStock>;virtual:PhysicalStock[]};
+export function historicalCounted(o:OrderLine,f:Pick<DigitFulfillment,'status'|'reason'|'signature'|'fixed_groups'>,p:Product|undefined,rules:StockRule[],stocks:PhysicalStock[],variants:DigitVariant[],conditions:DigitCondition[],remarks:DigitRemarkRule[],cache?:RecognitionCache){
  if(f.status!=='pending'||!/未盘点|库存尚未确认/.test(f.reason)||f.fixed_groups||f.signature!==digitSignature(o)||!isValid(o.status)||o.review||!o.shipped_at||(o.shipped_qty??0)!==o.quantity||!p||isPrintOnly(p))return false;
  // Route recognition only: a later physical count already includes these
  // shipments. Current balance must never cause a historical second deduction.
- const plan=fulfillmentPlan({...o,title:p.name},rules,variants,stocks.map(s=>({...s,quantity:s.quantity==null?null:Number.MAX_SAFE_INTEGER})),undefined,conditions,remarks);
+ const key=JSON.stringify([o.code,p.name,digitSignature(o)]);
+ const plan=cache?.plans.has(key)?cache.plans.get(key):fulfillmentPlan({...o,title:p.name},rules,variants,cache?.virtual??stocks.map(s=>({...s,quantity:s.quantity==null?null:Number.MAX_SAFE_INTEGER})),undefined,conditions,remarks);
+ if(cache&&!cache.plans.has(key))cache.plans.set(key,plan??null);
  if(!plan||plan.status!=='auto'||!plan.items.length)return false;
- const map=new Map(stocks.map(s=>[s.code,s]));return plan.items.every(r=>{const s=map.get(r.stock_code);return s&&!s.archived&&s.quantity!=null&&s.count_at!=null&&o.shipped_at!<=s.count_at});
+ const map=cache?.stocks??new Map(stocks.map(s=>[s.code,s]));return plan.items.every(r=>{const s=map.get(r.stock_code);return s&&!s.archived&&s.quantity!=null&&s.count_at!=null&&o.shipped_at!<=s.count_at});
 }
 /** Derived read-only disposition. No choices, routes, costs or quantities change. */
 export async function readHistoricalCountedKeys(d:D1Database,scope:string){
@@ -18,6 +21,7 @@ export async function readHistoricalCountedKeys(d:D1Database,scope:string){
  const c=await d.batch([d.prepare('SELECT * FROM products WHERE scope=?').bind(scope),d.prepare('SELECT * FROM physical_stocks WHERE scope=?').bind(scope),d.prepare('SELECT sales_code,stock_code,per_unit FROM stock_rules WHERE scope=?').bind(scope),d.prepare('SELECT base_code,color,stock_code,size,start,end,available_end FROM digit_stock_variants WHERE scope=?').bind(scope)]);
  const pm=new Map((c[0].results as Product[]).map(p=>[p.code,p])),bySku=new Map<string,StockRule[]>();for(const r of c[2].results as StockRule[]){const a=bySku.get(r.sales_code)??[];a.push(r);bySku.set(r.sales_code,a)}
  const conditions=await readDigitConditions(d,scope),remarks=await readRemarkRules(d,scope);
- for(const o of rows)if(historicalCounted(o,{status:o.f_status,reason:o.f_reason,signature:o.f_signature,fixed_groups:o.f_groups},pm.get(o.code),bySku.get(o.code)??[],c[1].results as PhysicalStock[],c[3].results as DigitVariant[],conditions,remarks))result.add(o.key);
+ const stocks=c[1].results as PhysicalStock[],cache:RecognitionCache={plans:new Map(),stocks:new Map(stocks.map(s=>[s.code,s])),virtual:stocks.map(s=>({...s,quantity:s.quantity==null?null:Number.MAX_SAFE_INTEGER}))};
+ for(const o of rows)if(historicalCounted(o,{status:o.f_status,reason:o.f_reason,signature:o.f_signature,fixed_groups:o.f_groups},pm.get(o.code),bySku.get(o.code)??[],stocks,c[3].results as DigitVariant[],conditions,remarks,cache))result.add(o.key);
  return result;
 }
