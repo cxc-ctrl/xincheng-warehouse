@@ -60,9 +60,10 @@ function validateExisting(body:ReturnType<typeof syncBundle>,rows:Obj[][]){
   if(profile&&(profile.source_product!==v.product_id||profile.source_revision>v.revision))throw new Error('SKU已归属其他商品或同步版本已更新：'+v.sku);
   if(p&&!['','待关联'].includes(v.inventory_mode)&&p.stock_mode!==stockMode(v))throw new Error('库存方式与仓库现有记录不同，实际数量保持不变；请核对独立成品/共用实物选择：'+v.sku);
   const desired=body.warehouse_config.links.filter((l:Obj)=>l.sku===v.sku).map((l:Obj)=>[l.stock_code,l.mode==='固定数量'?l.quantity:1]).sort(),old=rows[2].filter(l=>l.sales_code===v.sku).map(l=>[l.stock_code,l.per_unit]).sort();
-  const preserve=isPrintOnly(v)||v.inventory_mode==='仅统计销售'||!desired.length&&v.inventory_mode!=='共用库存';
+  const keepWarehouseRecipe=body.digit_rules_owner==='warehouse'&&!desired.length&&old.length>0;
+  const preserve=keepWarehouseRecipe||isPrintOnly(v)||v.inventory_mode==='仅统计销售'||!desired.length&&v.inventory_mode!=='共用库存';
   if(p&&!preserve&&old.length&&JSON.stringify(desired)!==JSON.stringify(old))throw new Error('实物关联与仓库现有规则不同，请先核对；库存数量未修改：'+v.sku);
-  if(v.inventory_mode==='共用库存'&&!isPrintOnly(v)&&!desired.length)throw new Error('共用实物尚未配置关联，请选择自动关联或先配置规则：'+v.sku);
+  if(v.inventory_mode==='共用库存'&&!isPrintOnly(v)&&!keepWarehouseRecipe&&!desired.length)throw new Error('共用实物尚未配置关联，请选择自动关联或先配置规则：'+v.sku);
   // Product-center sync owns current reference pricing; legacy actual costs stay frozen.
  }
  for(const s of body.warehouse_config.stocks){const old=rows[1].find(p=>p.code===s.code);if(old&&(old.archived||old.unit!==s.unit||(old.quantity!=null&&old.spec&&old.spec!==s.size)))throw new Error('已有实物单位、尺寸或归档状态冲突：'+s.code);}
@@ -162,4 +163,5 @@ export async function readProductCenterCosts(d:DB,scope:string,raw:Obj){
  const rows=(await d.prepare('SELECT code,name,unit,cost,updated_at FROM physical_stocks WHERE scope=? AND archived=0 AND code IN(SELECT value FROM json_each(?)) ORDER BY code').bind(scope,JSON.stringify([...new Set(raw.codes)])).all<Obj>()).results;
  return {rows,basis:await hash(rows)};
 }
+
 
