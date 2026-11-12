@@ -1,4 +1,4 @@
-import {readHistoricalCountedKeys} from './historical-counted-orders';
+import {readHistoricalCountedKeys,historicalCounted} from './historical-counted-orders';
 import {readRemarkRules,guardRemarkRules} from './digit-remark-actions';
 import {fixedGroupPlan,savedFixedGroups} from './digit-fixed-groups';
 import {DIGIT_CATALOG,RED_COLOR,digitSheet,digitSignature,fulfillmentPlan,type DigitVariant,type DigitFulfillment,type DigitItem,type ColorAllocation} from './digit-colors';
@@ -46,6 +46,13 @@ export async function appendDigitImport(d:D1Database,ss:D1PreparedStatement[],sc
   return old?.unit_cost_snapshot??null;
  }
  const state=await inputs(d,scope,o.code);
+ if(old&&prior?.status==='pending'&&isValid(o.status)&&old.title===o.title&&old.quantity===o.quantity&&(o.shipped_at==null||o.shipped_at===old.shipped_at)&&digitSignature(o)===digitSignature(old)){
+  const product=await d.prepare('SELECT * FROM products WHERE scope=? AND code=?').bind(scope,o.code).first<import('./model').Product>();
+  if(historicalCounted(old,prior,product??undefined,state.rules,state.stocks,state.variants,state.conditions,state.remarkRules)){
+   ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND NOT EXISTS(SELECT 1 FROM digit_fulfillments WHERE scope=? AND order_key=? AND status='pending' AND updated_at=?) THEN json('历史发货核对记录已变化') ELSE 1 END`).bind(scope,rid,scope,o.key,prior.updated_at));
+   return old.unit_cost_snapshot??null;
+  }
+ }
  if(!state.rules.some(r=>r.sales_code===o.code&&state.variants.some(v=>v.base_code===r.stock_code)))return;
  const retryPending=prior?.status==='pending'&&isValid(o.status)&&!(await d.prepare('SELECT 1 FROM order_stocks WHERE scope=? AND order_key=? UNION ALL SELECT 1 FROM order_returns WHERE scope=? AND order_key=? LIMIT 1').bind(scope,o.key,scope,o.key).first());
  if(retryPending)ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (NOT EXISTS(SELECT 1 FROM digit_fulfillments WHERE scope=? AND order_key=? AND status='pending' AND updated_at=?) OR EXISTS(SELECT 1 FROM order_stocks WHERE scope=? AND order_key=?) OR EXISTS(SELECT 1 FROM order_returns WHERE scope=? AND order_key=?)) THEN json('订单发货记录已变化，请刷新后重新导入') ELSE 1 END`).bind(scope,rid,scope,o.key,prior!.updated_at,scope,o.key,scope,o.key));

@@ -14,6 +14,7 @@ const {indexOrderFilters}=load(path.join(root,'lib/order-review-filters.ts'));
  let d=await data(),f=d.digitFulfillments.find(f=>f.order_key===o.key);assert.equal(f.historical_counted,true);assert.equal(f.status,'pending','stored dispatch decision is not falsely confirmed');assert.equal(digitOrderIssue(f),null);
  const filters=indexOrderFilters(d.orders,new Map(d.digitFulfillments.map(f=>[f.order_key,f])),new Map(),new Map(d.products.map(p=>[p.code,p])),new Set());assert.equal(filters.counts.count,0);
  assert.deepEqual(sql.prepare('select * from physical_stocks').all(),before);assert.deepEqual(sql.prepare('select * from digit_fulfillments').all(),rawBefore);assert.deepEqual(sql.prepare('select * from orders').all(),ordersBefore);
+ await imported([o]);assert((await readHistoricalCountedKeys(db,'isolated')).has(o.key),'repeated ERP import must not recreate an obsolete shortage');assert.equal(sql.prepare("select quantity from physical_stocks where code='BOARD'").get().quantity,0);assert.equal(sql.prepare('select count(*) n from order_stocks').get().n,0);
  sql.prepare('update orders set shipped_at=NULL where key=?').run(o.key);assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0);
  sql.prepare('update orders set shipped_at=? where key=?').run(at+6000,o.key);assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0,'shipment after count remains a real task');
  sql.prepare('update orders set shipped_at=?,review=1 where key=?').run(at+1000,o.key);assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0);
