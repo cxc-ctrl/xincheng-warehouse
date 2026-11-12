@@ -98,7 +98,7 @@ export async function appendDigitAction(b:Record<string,any>,d:D1Database,scope:
  }
  if(b.action!=='digit_fulfillment'&&b.action!=='digit_recheck'&&b.action!=='digit_audit'&&b.action!=='digit_print')return false;
  const automatic=b.action==='digit_recheck';
- if(b.action!=='digit_print'&&await d.prepare('SELECT 1 FROM orders o JOIN print_jobs j ON j.scope=o.scope AND j.shop=o.shop AND j.order_id=o.order_id WHERE o.scope=? AND o.key=?').bind(scope,b.key).first())throw new Error('该订单已整单转打印，不能单独改为现货');
+ if(b.action!=='digit_print'&&await d.prepare("SELECT 1 FROM orders o JOIN print_jobs j ON j.scope=o.scope AND j.shop=o.shop AND j.order_id=o.order_id WHERE o.scope=? AND o.key=? AND (COALESCE(j.accounting_mode,'whole')!='sku' OR EXISTS(SELECT 1 FROM json_each(j.member_keys) WHERE value=o.key))").bind(scope,b.key).first())throw new Error('该订单已整单转打印，不能单独改为现货');
  const o=await d.prepare('SELECT * FROM orders WHERE scope=? AND key=?').bind(scope,b.key).first<OrderLine&{updated_at:number}>();
  const f=await d.prepare('SELECT * FROM digit_fulfillments WHERE scope=? AND order_key=?').bind(scope,b.key).first<DigitFulfillment>();
  if(!o||!f||f.updated_at!==b.expected_at||digitSignature(o)!==b.signature)throw new Error('订单已更新，请刷新后重新确认');
@@ -181,3 +181,5 @@ export async function appendDigitAction(b:Record<string,any>,d:D1Database,scope:
  ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,reference,unit) SELECT ?,?,?,'order','确认发货颜色',0,?,?,?,'份' WHERE ${guard}`).bind(scope,crypto.randomUUID(),o.code,'订单 '+o.order_id+'；原购买规格：'+o.spec+'；'+reason+'；'+plan.color+'；'+items.map(r=>r.stock_code+' × '+r.per_unit*(r.allocated_qty??shipped)).join('；')+'；货品总成本：'+(actualCost==null?'待填写':(actualCost*shipped).toFixed(4)+'元'),now,o.key,scope,rid));
  return true;
 }
+
+
