@@ -14,8 +14,8 @@ export default function InventoryStocktake({settings,costEdits,setCostEdits,rows
  const fileRef=useRef<HTMLInputElement>(null),locked=busy||working;
  const [expanded,setExpanded]=useState<Record<string,boolean>>({});
  const [bulk,setBulk]=useState({cost:''});
- const categories=[...new Set(rows.flatMap(row=>row.categories))].sort();
- const filtered=useMemo(()=>rows.filter(row=>(category==="全部品类"||row.categories.includes(category))&&(status==="全部状态"||(status==="未确认库存"&&row.quantity==null)||(status==="已确认库存"&&row.quantity!=null))&&[row.code,row.name,row.spec,row.location,...row.sales_codes,...row.sales_names].join(" ").toLowerCase().includes(search.trim().toLowerCase())),[rows,category,status,search]);
+ const categories=[...new Set(rows.flatMap(row=>row.categories.map(c=>c.trim()||"未分类")))].sort();
+ const filtered=useMemo(()=>rows.filter(row=>(category==="全部品类"||row.categories.some(c=>(c.trim()||"未分类")===category))&&(status==="全部状态"||(status==="未确认库存"&&row.quantity==null)||(status==="已确认库存"&&row.quantity!=null))&&[row.code,row.name,row.spec,row.location,...row.sales_codes,...row.sales_names].join(" ").toLowerCase().includes(search.trim().toLowerCase())),[rows,category,status,search]);
  const groups=useMemo(()=>visibleInventoryGroups(inventoryDisplayGroups(rows,products),filtered),[rows,products,filtered]);
  const pages=Math.max(1,Math.ceil(groups.length/20)),current=Math.min(page,pages),pending=Object.values(edits).filter(value=>value!=="").length;
  async function importCounts(file:File){setWorking(true);onError("");try{const items=resolveCounts(await parseCounts(file),rows);setEdits(previous=>({...previous,...Object.fromEntries(items.map(item=>[item.key,String(item.quantity)]))}));onMessage(`已填入 ${items.length} 条实物库存，核对数量和起算时间后保存。`);}catch(error){onError(error instanceof Error?error.message:"读取盘点表失败");}finally{setWorking(false);}}

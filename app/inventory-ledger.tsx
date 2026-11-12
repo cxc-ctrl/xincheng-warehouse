@@ -13,8 +13,8 @@ export default function InventoryLedger(props:Props){
  const {rows,products,rules,onExport,onManageStock,onCount,onRevoke,onEdit,onWarning,busy,initialStatus,edits,setEdits,onAction,onError,onMessage,onStocktake,onAssociate,onCreateStock}=props;
  const [search,setSearch]=useState(""),[category,setCategory]=useState("全部品类"),[status,setStatus]=useState("全部状态"),[page,setPage]=useState(1);
  useEffect(()=>{setStatus(initialStatus);setPage(1)},[initialStatus]);
- const categories=[...new Set(rows.flatMap(r=>r.categories))].sort();
- const filtered=useMemo(()=>rows.filter(r=>(category==="全部品类"||r.categories.includes(category))&&(status==="全部状态"||(status==="未确认库存"&&r.quantity==null)||(status==="已确认库存"&&r.quantity!=null)||(status==="库存预警"&&r.quantity!=null&&r.quantity<=r.minimum&&!r.ignore_warning)||(status==="已忽略预警"&&!!r.ignore_warning))&&[r.code,r.name,r.spec,r.location,...r.sales_codes,...r.sales_names].join(" ").toLowerCase().includes(search.trim().toLowerCase())),[rows,category,status,search]);
+ const categories=[...new Set(rows.flatMap(r=>r.categories.map(c=>c.trim()||"未分类")))].sort();
+ const filtered=useMemo(()=>rows.filter(r=>(category==="全部品类"||r.categories.some(c=>(c.trim()||"未分类")===category))&&(status==="全部状态"||(status==="未确认库存"&&r.quantity==null)||(status==="已确认库存"&&r.quantity!=null)||(status==="库存预警"&&r.quantity!=null&&r.quantity<=r.minimum&&!r.ignore_warning)||(status==="已忽略预警"&&!!r.ignore_warning))&&[r.code,r.name,r.spec,r.location,...r.sales_codes,...r.sales_names].join(" ").toLowerCase().includes(search.trim().toLowerCase())),[rows,category,status,search]);
  const groups=useMemo(()=>visibleInventoryGroups(inventoryDisplayGroups(rows,products),filtered),[rows,products,filtered]);
  const imageIndex=useMemo(()=>inventoryImageIndex(rows,products,rules),[rows,products,rules]);
  const totals=inventoryTotals(filtered),pages=Math.max(1,Math.ceil(groups.length/20)),current=Math.min(page,pages),drafts=Object.values(edits).filter(value=>value!=="").length;
