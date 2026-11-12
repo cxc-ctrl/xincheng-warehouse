@@ -1,0 +1,12 @@
+const {assert,load,root}=require('./isolated-harness.cjs'),path=require('node:path');
+const {digitOrderIssue}=load(path.join(root,'lib/order-issues.ts'));
+const {indexOrderFilters}=load(path.join(root,'lib/order-review-filters.ts'));
+const {remarkColor}=load(path.join(root,'lib/digit-colors.ts'));
+const issue=digitOrderIssue({status:'pending',reason:'商品制作方式已更新，请按当前仓库规则核对'});
+assert.equal(issue.label,'发货方式需核对');
+const o={key:'a',code:'x',status:'已发货',quantity:1,buyer_remark:'',seller_remark:'',remarks_available:1,tracking_numbers:['YT7026528136573']};
+const idx=indexOrderFilters([o],new Map(),new Map([['a',issue]]),new Map([['x',{}]]),new Set(['a']));
+assert.equal(idx.counts.unknown,0);assert.equal(idx.counts.other,1);assert.equal(idx.counts.pending,1);
+assert.equal(remarkColor(o).allocations[0].color,'红底白字');
+assert.equal(digitOrderIssue({status:'pending',reason:'备注包含多种颜色，但各颜色份数不清晰，请核对'}).label,'规格 / 数量需核对');
+console.log('PASS fulfillment mode issue classified separately; empty remarks ignore tracking numbers');

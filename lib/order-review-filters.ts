@@ -4,7 +4,7 @@ export const MAIN_ORDER_FILTERS=[['all','全部订单'],['print','已安排打�
 export const EXTRA_ORDER_FILTERS=[['unmatched','未匹配商品'],['count','待盘点'],['audit','已扣记录待复核'],['suggest','建议整单打印'],['other','其他待核对'],['pending','全部待核对'],['valid','有效订单']] as const;
 export type OrderFilter=typeof MAIN_ORDER_FILTERS[number][0]|typeof EXTRA_ORDER_FILTERS[number][0];
 export const DEFAULT_ORDER_FILTERS:OrderFilter[]=['pending'];
-const issueFilter:Record<DigitIssue['label'],OrderFilter>={'缺货':'shortage','未建对应库存':'missing','备注无法识别':'unknown','规格 / 数量需核对':'spec','待盘点':'count','已扣记录待复核':'audit','建议整单打印':'suggest'};
+const issueFilter:Record<DigitIssue['label'],OrderFilter>={'缺货':'shortage','未建对应库存':'missing','备注无法识别':'unknown','规格 / 数量需核对':'spec','待盘点':'count','已扣记录待复核':'audit','建议整单打印':'suggest','发货方式需核对':'other'};
 export function toggleOrderFilter(selected:OrderFilter[],key:OrderFilter):OrderFilter[]{
  if(key==='all')return selected.includes('all')?[]:['all'];
  const next=selected.filter(x=>x!=='all');return next.includes(key)?next.filter(x=>x!==key):[...next,key];
@@ -26,3 +26,4 @@ export function indexOrderFilters(orders:OrderLine[],choices:Map<string,{status:
 export function filterReviewOrders(rows:ReturnType<typeof indexOrderFilters>['rows'],selected:OrderFilter[],search:string){
  const q=search.trim().toLowerCase();return rows.filter(r=>selected.some(id=>r.filters.has(id))&&(!q||[r.order.code,r.order.title,r.order.spec,r.order.order_id,r.order.shop,r.order.buyer_remark,r.order.seller_remark].join(' ').toLowerCase().includes(q))).map(r=>r.order);
 }
+
