@@ -1,0 +1,1 @@
+ALTER TABLE import_ignore_rules ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;

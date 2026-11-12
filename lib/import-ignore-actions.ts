@@ -11,16 +11,19 @@ async function blocked(d:D1Database,scope:string,o:OrderLine){
 export async function previewImportIgnore(d:D1Database,scope:string,b:Record<string,any>){const {pattern,mode}=input(b),rows=await candidates(d,scope,pattern,mode);let blockedCount=0;for(const o of rows)if(await blocked(d,scope,o))blockedCount++;return {pattern,mode,count:rows.length,blocked:blockedCount,basis:rows.length<=500?JSON.stringify(rows.map(o=>[o.key,o.updated_at])):'',sample:rows.slice(0,8).map(o=>({code:o.code,title:o.title,shop:o.shop,order_id:o.order_id}))};}
 export async function importIgnorePage(d:D1Database,scope:string){return {rules:await readImportIgnoreRules(d,scope),ignored:(await d.prepare('SELECT count(*) n FROM ignored_order_lines WHERE scope=?').bind(scope).first<{n:number}>())?.n??0};}
 export async function appendImportIgnore(b:Record<string,any>,d:D1Database,scope:string,now:number,rid:string,ss:D1PreparedStatement[],guard:string){
- if(b.action!=='import_ignore_save'&&b.action!=='import_ignore_toggle')return false;
- if(b.action==='import_ignore_toggle'){
-  if(typeof b.id!=='string'||![0,1].includes(b.enabled))throw Error('规则状态无效');
-  const old=await d.prepare('SELECT pattern,updated_at FROM import_ignore_rules WHERE scope=? AND id=?').bind(scope,b.id).first<{pattern:string;updated_at:number}>();if(!old||old.updated_at!==b.updated_at)throw Error('规则已变化，请刷新');
-  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND NOT EXISTS(SELECT 1 FROM import_ignore_rules WHERE scope=? AND id=? AND updated_at=?) THEN json('规则已变化') ELSE 1 END`).bind(scope,rid,scope,b.id,b.updated_at));
-  ss.push(d.prepare(`UPDATE import_ignore_rules SET enabled=?,updated_at=? WHERE scope=? AND id=? AND ${guard}`).bind(b.enabled,now,scope,b.id,scope,rid));
-  ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,reference,unit) SELECT ?,?,?,'order',?,0,?,?,?,'份' WHERE ${guard}`).bind(scope,crypto.randomUUID(),old.pattern,b.enabled?'启用导入忽略规则':'停用导入忽略规则','仅影响后续导入，历史归档保留',now,rid,scope,rid));return true;
+ if(!['import_ignore_save','import_ignore_toggle','import_ignore_delete'].includes(b.action))return false;
+ if(b.action==='import_ignore_toggle'||b.action==='import_ignore_delete'){
+  const deleting=b.action==='import_ignore_delete';
+  if(typeof b.id!=='string'||(!deleting&&![0,1].includes(b.enabled))||(deleting&&b.confirm_delete!==true))throw Error('请确认删除或选择有效规则状态');
+  const old=await d.prepare('SELECT pattern,enabled,updated_at FROM import_ignore_rules WHERE scope=? AND id=? AND deleted=0').bind(scope,b.id).first<{pattern:string;enabled:number;updated_at:number}>();if(!old||old.updated_at!==b.updated_at)throw Error('规则已变化，请刷新');
+  if(deleting&&old.enabled!==0)throw Error('请先停用这条规则，再删除');
+  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND NOT EXISTS(SELECT 1 FROM import_ignore_rules WHERE scope=? AND id=? AND updated_at=? AND deleted=0 AND enabled=?) THEN json('规则已变化') ELSE 1 END`).bind(scope,rid,scope,b.id,b.updated_at,old.enabled));
+  ss.push(d.prepare(`UPDATE import_ignore_rules SET enabled=?,deleted=?,updated_at=? WHERE scope=? AND id=? AND ${guard}`).bind(deleting?0:b.enabled,deleting?1:0,now,scope,b.id,scope,rid));
+  ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,reference,unit) SELECT ?,?,?,'order',?,0,?,?,?,'份' WHERE ${guard}`).bind(scope,crypto.randomUUID(),old.pattern,deleting?'删除导入忽略规则':b.enabled?'启用导入忽略规则':'停用导入忽略规则','仅影响后续导入，历史归档保留',now,rid,scope,rid));return true;
  }
  const {pattern,mode}=input(b),note=typeof b.note==='string'?b.note.trim():'';if(note.length>500)throw Error('原因请控制在500字以内');
- if(await d.prepare('SELECT 1 FROM import_ignore_rules WHERE scope=? AND pattern=? AND mode=?').bind(scope,pattern,mode).first())throw Error('该规则已存在，请在列表中启用或停用');
+ if(await d.prepare('SELECT 1 FROM import_ignore_rules WHERE scope=? AND pattern=? AND mode=? AND deleted=0').bind(scope,pattern,mode).first())throw Error('该规则已存在，请在列表中启用或停用');
+ ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND EXISTS(SELECT 1 FROM import_ignore_rules WHERE scope=? AND pattern=? AND mode=? AND deleted=0) THEN json('规则已存在，请刷新') ELSE 1 END`).bind(scope,rid,scope,pattern,mode));
  const rows=b.apply_existing===true?await candidates(d,scope,pattern,mode):[];
  if(b.apply_existing===true&&JSON.stringify(rows.map(o=>[o.key,o.updated_at]))!==b.basis)throw Error('已有订单已变化，请重新预览');
  if(rows.length>500)throw Error('匹配超过500条已有明细，请缩小编码范围后分批处理');
@@ -34,6 +37,6 @@ export async function appendImportIgnore(b:Record<string,any>,d:D1Database,scope
   ss.push(d.prepare(`DELETE FROM orders WHERE scope=? AND key=? AND ${guard}`).bind(scope,o.key,scope,rid));
   ss.push(d.prepare(`UPDATE import_conflict_groups SET status='ignored',resolved_at=? WHERE scope=? AND order_key=? AND status='pending' AND ${guard}`).bind(now,scope,o.key,scope,rid));
  }
- ss.push(d.prepare(`INSERT INTO import_ignore_rules(scope,id,pattern,mode,note,enabled,created_at,updated_at) SELECT ?,?,?,?,?,1,?,? WHERE ${guard}`).bind(scope,crypto.randomUUID(),pattern,mode,note,now,now,scope,rid));
+ ss.push(d.prepare(`INSERT INTO import_ignore_rules(scope,id,pattern,mode,note,enabled,created_at,updated_at) SELECT ?,?,?,?,?,1,?,? WHERE ${guard} ON CONFLICT(scope,pattern,mode) DO UPDATE SET id=excluded.id,note=excluded.note,enabled=1,deleted=0,created_at=excluded.created_at,updated_at=excluded.updated_at`).bind(scope,crypto.randomUUID(),pattern,mode,note,now,now,scope,rid));
  ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,reference,unit) SELECT ?,?,?,'order','新增导入忽略规则',0,?,?,?,'份' WHERE ${guard}`).bind(scope,crypto.randomUUID(),pattern,`${mode==='prefix'?'前缀':'完整编码'}忽略；归档 ${rows.length} 条已有明细；${note}`,now,rid,scope,rid));return true;
 }

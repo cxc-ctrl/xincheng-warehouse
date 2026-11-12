@@ -10,6 +10,13 @@ const {buildFreightAnalysis}=load(path.join(root,'lib/freight-reconciliation.ts'
  preview=(await send({action:'import_ignore_preview',pattern:'OTHER',mode:'exact'})).preview;await send({action:'import_ignore_save',pattern:'OTHER',mode:'exact',apply_existing:false});await imported([line('EXACT','OTHER-EXTRA',1,'已发货',at),line('EXACT','OTHER',1,'已发货',at)]);d=await data();assert(d.orders.some(o=>o.code==='OTHER-EXTRA'));assert(!d.orders.some(o=>o.order_id==='EXACT'&&o.code==='OTHER'));
  preview=(await send({action:'import_ignore_preview',pattern:'TEST-SERIES-A',mode:'exact'})).preview;sql.prepare('update orders set deducted_qty=1 where key=?').run(a.key);await send({action:'import_ignore_save',pattern:'TEST-SERIES-A',mode:'exact',apply_existing:true,basis:preview.basis},400);assert(!sql.prepare("select 1 from import_ignore_rules where pattern='TEST-SERIES-A'").get(),'blocked history must not partially save a rule');
  await send({action:'import_ignore_preview',pattern:'TEST*',mode:'prefix'},400);
+ const active=(await send({action:'import_ignore_list'})).rules.find(r=>r.pattern==='OTHER');await send({action:'import_ignore_delete',id:active.id,updated_at:active.updated_at,confirm_delete:true},400);
+ rule=(await send({action:'import_ignore_list'})).rules.find(r=>r.pattern==='TEST-SERIES-');const archived=sql.prepare('select count(*) n from ignored_order_lines').get().n;
+ await send({action:'import_ignore_delete',id:rule.id,updated_at:rule.updated_at},400);
+ const del={action:'import_ignore_delete',id:rule.id,updated_at:rule.updated_at,confirm_delete:true,request_id:'delete-once'};await send(del);await send(del);
+ assert(!(await send({action:'import_ignore_list'})).rules.some(r=>r.id===rule.id));assert.equal(sql.prepare('select count(*) n from ignored_order_lines').get().n,archived);
+ await send({action:'import_ignore_toggle',id:rule.id,updated_at:rule.updated_at,enabled:1},400);
+ await send({action:'import_ignore_save',pattern:'TEST-SERIES-',mode:'prefix',apply_existing:false});assert((await send({action:'import_ignore_list'})).rules.some(r=>r.pattern==='TEST-SERIES-'&&r.id!==rule.id));
  assert.equal(sql.prepare("select count(*) n from import_ignore_rules where scope='another-user'").get().n,0);
  console.log('PASS prefix/exact rules, archive originals, mixed orders, repeat saves/imports, stop/reimport restore, stale rule guard and stock safety');
 })().catch(e=>{console.error(e);process.exitCode=1});
