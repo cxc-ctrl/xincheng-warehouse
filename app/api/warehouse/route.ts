@@ -29,7 +29,8 @@ import {appendInventoryGrouping} from "../../../lib/inventory-grouping-actions";
 import { appendInventoryCount } from "../../../lib/count-actions";
 import {appendRevokeCount} from "../../../lib/revoke-count";
 import {appendOrderImport,appendOrderReview,appendCostSnapshot} from "../../../lib/order-actions";
-import {ignoredOrderCode,IGNORED_ORDER_REASON} from '../../../lib/order-scope';
+import {ignoredOrderCode,IGNORED_ORDER_REASON,readImportIgnoreRules} from '../../../lib/order-scope';
+import {appendImportIgnore,previewImportIgnore,importIgnorePage} from '../../../lib/import-ignore-actions';
 import {appendInventoryAssociation} from "../../../lib/inventory-association-actions";
 import {readProductRefresh} from "../../../lib/product-refresh";
 import {appendProductDelete,deletedProductResult} from "../../../lib/product-delete";
@@ -52,7 +53,7 @@ export async function GET(req:Request){try{const user=await getChatGPTUser();if(
  const printing=await readPrinting(d,scope),shopData=await readShopData(d,scope);
  const digits=await readDigitColors(d,scope),digitKeys=new Set(digits.digitFulfillments.map(f=>f.order_key)),printChoices=new Map(digits.digitFulfillments.filter(f=>f.status==='print').map(f=>[f.order_key,f]));
  const routed=new Map<string,{stock_code:string;per_unit:number;quantity:number}[]>();for(const r of digits.digitOrderRules){const a=routed.get(r.order_key)??[];a.push({stock_code:r.stock_code,per_unit:r.per_unit,quantity:r.quantity});routed.set(r.order_key,a);}
- return json(projectWarehouseView({workOrderExclusions:await readWorkOrderExclusions(d,scope),...printing,...shopData,products:await supplyProducts(d,scope,result[0].results as Product[]),orders:enrichPrinting((result[1].results as (OrderLine&{tracking_json:string})[]).map(raw=>{const {tracking_json,...rest}=raw;return {...rest,tracking_numbers:JSON.parse(tracking_json)} as OrderLine;}).map(o=>digitKeys.has(o.key)?{...o,stock_items:routed.get(o.key)??[],...(printChoices.has(o.key)?{fulfillment_mode:"print" as const,printing_note:printChoices.get(o.key)!.color}:{})}:o),printing.printJobs),movements:result[2].results,batches:result[3].results,physical:result[4].results,rules:result[5].results,orderStocks:result[6].results,conflicts:result[7].results,returns:result[8].results,importTestMode:settings?.import_test_mode===1,...digits,...await readCostSettings(d,scope),...await readFreightData(d,scope),...await readAnalytics(d,scope),user:user.displayName},view));}catch(e){return err(e);}}
+ return json(projectWarehouseView({importIgnoreRules:await readImportIgnoreRules(d,scope),workOrderExclusions:await readWorkOrderExclusions(d,scope),...printing,...shopData,products:await supplyProducts(d,scope,result[0].results as Product[]),orders:enrichPrinting((result[1].results as (OrderLine&{tracking_json:string})[]).map(raw=>{const {tracking_json,...rest}=raw;return {...rest,tracking_numbers:JSON.parse(tracking_json)} as OrderLine;}).map(o=>digitKeys.has(o.key)?{...o,stock_items:routed.get(o.key)??[],...(printChoices.has(o.key)?{fulfillment_mode:"print" as const,printing_note:printChoices.get(o.key)!.color}:{})}:o),printing.printJobs),movements:result[2].results,batches:result[3].results,physical:result[4].results,rules:result[5].results,orderStocks:result[6].results,conflicts:result[7].results,returns:result[8].results,importTestMode:settings?.import_test_mode===1,...digits,...await readCostSettings(d,scope),...await readFreightData(d,scope),...await readAnalytics(d,scope),user:user.displayName},view));}catch(e){return err(e);}}
 async function orderResponse(d:D1Database,scope:string,b:Record<string,any>){
  if(String(b.action).startsWith('shop_'))return shopActionResponse(b,d,scope);
  if(ASSOCIATION_ACTIONS.has(b.action)){try{return {associationRefresh:await readAssociationRefresh(d,scope,b)};}catch{return {refreshRequired:true};}}
@@ -71,6 +72,8 @@ export async function POST(req:Request):Promise<Response>{try{
  const raw=await req.text();if(raw.length>1000000)return json({error:"请求过大，请分批导入"},413);const b=JSON.parse(raw),scope=user.userId,now=Date.now();let d=db();const rid=str(b.request_id,200);if(!rid)throw new Error("缺少操作编号");
  if(sync&&!['product_center_sync_preview','product_center_sync','product_center_costs'].includes(b.action))return json({error:'同步凭证仅可用于产品资料同步'},403);
  if(b.action==='digit_rules_preview')return json({ok:true,digitImportPreview:await previewDigitRuleImport(d,scope,b.file)});
+ if(b.action==='import_ignore_list')return json({ok:true,...await importIgnorePage(d,scope)});
+ if(b.action==='import_ignore_preview')return json({ok:true,preview:await previewImportIgnore(d,scope,b)});
  if(b.action==='digit_rules_export')return json({ok:true,digitRuleExport:await readDigitRuleExport(d,scope,now)});
  if(b.action==='digit_remark_preview')return json({ok:true,remarkPreview:await previewRemark(d,scope,b)});
  if(b.action==='stock_loss_list')return json({ok:true,losses:await readStockLosses(d,scope,b)});
@@ -99,7 +102,7 @@ export async function POST(req:Request):Promise<Response>{try{
  const statements:D1PreparedStatement[]=[];
  // All mutations and their receipt commit together. Guarded receipt inserts make retries safe.
  const guard="NOT EXISTS(SELECT 1 FROM receipts WHERE scope=? AND id=?)";
- if(await appendImportConflict(b,d,scope,now,rid,statements,guard,{str,qty,cost,timestamp})||await appendStockLoss(b,d,scope,user.displayName,now,rid,statements,guard)||await appendAlertPolicy(b,d,scope,now,rid,statements,guard)||await appendWorkOrderExclusion(b,d,scope,now,rid,statements,guard)||await appendShopAction(b,d,scope,now,rid,statements,guard,{str,qty,cost,timestamp})||await appendDigitRuleImport(b,d,scope,now,rid,statements,guard)||await appendRemarkRule(b,d,scope,now,rid,statements,guard)||await appendPurchase(b,d,scope,now,rid,statements,guard)||await appendDigitConditionAction(b,d,scope,now,rid,statements,guard)||await appendProductSync(b,d,scope,now,rid,statements,guard)||await appendPrintingAction(b,d,scope,now,rid,statements,guard)||await appendFreightAction(b,d,scope,now,rid,statements,guard)||await appendDigitAction(b,d,scope,now,rid,statements,guard)||await appendCostAction(b,d,scope,now,rid,statements,guard)||await appendAnalyticsAction(b,d,scope,now,rid,statements,guard)){
+ if(await appendImportIgnore(b,d,scope,now,rid,statements,guard)||await appendImportConflict(b,d,scope,now,rid,statements,guard,{str,qty,cost,timestamp})||await appendStockLoss(b,d,scope,user.displayName,now,rid,statements,guard)||await appendAlertPolicy(b,d,scope,now,rid,statements,guard)||await appendWorkOrderExclusion(b,d,scope,now,rid,statements,guard)||await appendShopAction(b,d,scope,now,rid,statements,guard,{str,qty,cost,timestamp})||await appendDigitRuleImport(b,d,scope,now,rid,statements,guard)||await appendRemarkRule(b,d,scope,now,rid,statements,guard)||await appendPurchase(b,d,scope,now,rid,statements,guard)||await appendDigitConditionAction(b,d,scope,now,rid,statements,guard)||await appendProductSync(b,d,scope,now,rid,statements,guard)||await appendPrintingAction(b,d,scope,now,rid,statements,guard)||await appendFreightAction(b,d,scope,now,rid,statements,guard)||await appendDigitAction(b,d,scope,now,rid,statements,guard)||await appendCostAction(b,d,scope,now,rid,statements,guard)||await appendAnalyticsAction(b,d,scope,now,rid,statements,guard)){
   // Configuration and its receipt are committed together.
  }else if(b.action==="product_delete"){
   await appendProductDelete(b,d,scope,rid,statements,guard);
@@ -166,8 +169,9 @@ export async function POST(req:Request):Promise<Response>{try{
   // other requests must retain their normal time boundary even in test mode.
   if(testMode)statements.push(d.prepare(`UPDATE warehouse_settings SET active_test_import=1 WHERE scope=? AND ${guard}`).bind(scope,scope,rid));
   if(new Set(b.lines.map((o:OrderLine)=>o.key)).size!==b.lines.length)throw new Error("同一批次的订单明细重复");
-  for(const o of b.lines.filter((o:OrderLine)=>ignoredOrderCode(o.code)))statements.push(d.prepare(`INSERT INTO ignored_order_lines(scope,order_key,shop,order_id,code,payload,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE ${guard} ON CONFLICT(scope,order_key) DO NOTHING`).bind(scope,o.key,o.shop,o.order_id,o.code,JSON.stringify(o),IGNORED_ORDER_REASON,now,scope,rid));
-  b.lines=b.lines.filter((o:OrderLine)=>!ignoredOrderCode(o.code));
+  const ignoreRules=await readImportIgnoreRules(d,scope);
+  for(const o of b.lines.filter((o:OrderLine)=>ignoredOrderCode(o.code,ignoreRules)))statements.push(d.prepare(`INSERT INTO ignored_order_lines(scope,order_key,shop,order_id,code,payload,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE ${guard} ON CONFLICT(scope,order_key) DO NOTHING`).bind(scope,o.key,o.shop,o.order_id,o.code,JSON.stringify(o),IGNORED_ORDER_REASON,now,scope,rid));
+  b.lines=b.lines.filter((o:OrderLine)=>!ignoredOrderCode(o.code,ignoreRules));
   const pendingStaged=new Set((await d.prepare("SELECT order_key FROM import_conflict_groups WHERE scope=? AND status='pending' AND order_key IN(SELECT value FROM json_each(?))").bind(scope,JSON.stringify(b.lines.map((o:OrderLine)=>o.key))).all<{order_key:string}>()).results.map(r=>r.order_key));
   b.lines=b.lines.filter((o:OrderLine)=>!pendingStaged.has(o.key));
   d=await importReadContext(d,scope,b.lines);

@@ -14,7 +14,7 @@ import {buildStockAlerts,type StockAlertSnapshot} from './stock-alerts';
 import type {Purchase} from './purchasing';
 import {warehouseCatalog,inventoryLedger,recipeStock,stockReadiness,summarize,type Product,type PhysicalStock,type StockRule,type OrderLine} from './model';
 
-export const WAREHOUSE_VIEWS=['dashboard','stockAlerts','products','paper','purchasing','digitRules','history','shops','printing','import','analysis','freightCheck','all','order','inventoryExport'] as const;
+export const WAREHOUSE_VIEWS=['ignoreRules','dashboard','stockAlerts','products','paper','purchasing','digitRules','history','shops','printing','import','analysis','freightCheck','all','order','inventoryExport'] as const;
 export type WarehouseView=typeof WAREHOUSE_VIEWS[number];
 export type DashboardSummary={stockAlerts:StockAlertSnapshot;skuCount:number;categories:number;counted:number;link:number;count:number;uncounted:number;qty:number;orderCount:number;alerts:number;reviews:number;unmatched:number;orderAttention:number;top:{code:string;name:string;qty:number}[];movements:{id:string;code:string;name:string;type:string;delta:number;unit:string;note:string;at:number}[];asOf:number};
 
@@ -65,6 +65,7 @@ export async function readFastWarehouseView(d:D1Database,scope:string,user:strin
   if(view==='dashboard')return {...common,dashboard:dashboardSummary(c,s,await movements(d,scope,5),Date.now(),purchases,context)};
   return {...common,...c,...await readCostSettings(d,scope),stockAlerts:buildStockAlerts(c.products,c.physical,c.rules,s.orders,purchases,Date.now(),context)};
  }
+ if(view==='ignoreRules')return {user};
  if(view==='shops')return {user,...await readShopData(d,scope)};
  if(['products','paper','purchasing','digitRules','history','inventoryExport','order'].includes(view)){
   const c=await catalog(d,scope);if(view==='inventoryExport')return c;

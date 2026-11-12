@@ -3,6 +3,7 @@ const {printBasis,printCostNeedsReview}=load(path.join(root,'lib/printing.ts'));
 const {isUnmatchedOrder}=load(path.join(root,'lib/order-review-filters.ts'));
 const {buildFreightAnalysis}=load(path.join(root,'lib/freight-reconciliation.ts'));
 (async()=>{
+ sql.prepare("INSERT INTO import_ignore_rules VALUES('isolated','scent-test','XLXH-HM-XK','prefix','香卡',1,0,0)").run();
  const at=Date.now()-10000,o={...line('LEGACY','UNKNOWN',2,'已发货',at),cost:99,source_updated_at:at};await imported([o]);
  const b={action:'print_transfer',shop:o.shop,order_id:o.order_id,basis:printBasis([o]),updated_at:0,note:'老商品整单货品成本',total_cost:'3.50',request_id:'inline-once'};
  await send({...b,total_cost:''},400);assert.equal(sql.prepare('select count(*) n from print_jobs').get().n,0,'invalid cost rolls back transfer');

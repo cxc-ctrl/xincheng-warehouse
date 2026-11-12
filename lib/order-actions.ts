@@ -1,5 +1,5 @@
 import {sourceDetails,sourceNeedsReview,validateSource} from './order-sources';
-import {ignoredOrderCode} from './order-scope';
+import {ignoredOrderCode,readImportIgnoreRules} from './order-scope';
 import {appendSupplyImport} from './product-center-sync';
 import {appendPrintingImport} from './printing-actions';
 import {financeFields,appendOrderFinance} from './freight-actions';
@@ -22,7 +22,7 @@ function guardOrder(d:D1Database,ss:D1PreparedStatement[],scope:string,o:OrderLi
 }
 export async function appendOrderImport(raw:OrderLine,d:D1Database,scope:string,now:number,rid:string,batch:string,ss:D1PreparedStatement[],guard:string,v:Validators,force=false,ignoreCutoff=false,confirmSourceShipment=false,releaseStaged=false){
  const {str,qty,cost,timestamp}=v;
- if(ignoredOrderCode(raw.code))return;
+ if(ignoredOrderCode(raw.code,await readImportIgnoreRules(d,scope)))return;
  if(typeof raw.shop!=="string"||!raw.shop.trim())throw new Error("店铺编码为空，请先在店铺配置的暂存订单中补齐店铺");
  const o:OrderLine={...financeFields(raw),key:str(raw.key,1000),order_id:str(raw.order_id),shop:str(raw.shop),platform:str(raw.platform,30),code:str(raw.code),title:str(raw.title,1000),spec:str(raw.spec,1000),quantity:qty(raw.quantity,false),status:str(raw.status,40),order_time:timestamp(raw.order_time),amount:cost(raw.amount),cost:cost(raw.cost),shipped_at:raw.shipped_at==null?null:timestamp(raw.shipped_at),source_updated_at:raw.source_updated_at==null?null:timestamp(raw.source_updated_at),buyer_remark:raw.buyer_remark===undefined?undefined:str(raw.buyer_remark,4000),seller_remark:raw.seller_remark===undefined?undefined:str(raw.seller_remark,4000),remarks_available:raw.remarks_available===undefined?undefined:raw.remarks_available?1:0};
  if(!o.order_id||o.key!==JSON.stringify([o.shop,o.order_id,o.code||'未填编码:'+o.title+':'+o.spec]))throw new Error('订单明细标识与商家编码不一致');

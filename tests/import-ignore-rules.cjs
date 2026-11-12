@@ -1,0 +1,15 @@
+const {assert,sql,send,imported,data,line,load,root}=require('./isolated-harness.cjs'),path=require('node:path');
+const {buildFreightAnalysis}=load(path.join(root,'lib/freight-reconciliation.ts'));
+(async()=>{
+ const at=Date.now()-10000,a=line('MIX','TEST-SERIES-A',1,'已发货',at),b=line('MIX','OTHER',1,'已发货',at);await imported([a,b]);
+ let preview=(await send({action:'import_ignore_preview',pattern:'TEST-SERIES-',mode:'prefix'})).preview;assert.equal(preview.count,1);assert.equal(preview.blocked,0);
+ const save={action:'import_ignore_save',pattern:'TEST-SERIES-',mode:'prefix',note:'隔离测试',apply_existing:true,basis:preview.basis,request_id:'save-once'};await send(save);await send(save);let d=await data();assert(!d.orders.some(o=>o.key===a.key));assert(d.orders.some(o=>o.key===b.key));assert.equal(sql.prepare('select count(*) n from ignored_order_lines').get().n,1);assert(buildFreightAnalysis(d.orders,d).rows[0].reasons.some(r=>r.includes('需复核')));
+ await imported([a,line('NEXT','TEST-SERIES-B',1,'已发货',at)]);d=await data();assert.equal(d.orders.length,1,'enabled prefix blocks old and future scent-like lines only');
+ let rule=(await send({action:'import_ignore_list'})).rules[0];await send({action:'import_ignore_toggle',id:rule.id,updated_at:rule.updated_at,enabled:0});await imported([a]);d=await data();assert(d.orders.some(o=>o.key===a.key));assert(!buildFreightAnalysis(d.orders,d).rows[0].reasons.some(r=>r.includes('暂不纳入')),'reimported restored lines no longer mark mixed income');
+ await send({action:'import_ignore_toggle',id:rule.id,updated_at:rule.updated_at,enabled:1},400);
+ preview=(await send({action:'import_ignore_preview',pattern:'OTHER',mode:'exact'})).preview;await send({action:'import_ignore_save',pattern:'OTHER',mode:'exact',apply_existing:false});await imported([line('EXACT','OTHER-EXTRA',1,'已发货',at),line('EXACT','OTHER',1,'已发货',at)]);d=await data();assert(d.orders.some(o=>o.code==='OTHER-EXTRA'));assert(!d.orders.some(o=>o.order_id==='EXACT'&&o.code==='OTHER'));
+ preview=(await send({action:'import_ignore_preview',pattern:'TEST-SERIES-A',mode:'exact'})).preview;sql.prepare('update orders set deducted_qty=1 where key=?').run(a.key);await send({action:'import_ignore_save',pattern:'TEST-SERIES-A',mode:'exact',apply_existing:true,basis:preview.basis},400);assert(!sql.prepare("select 1 from import_ignore_rules where pattern='TEST-SERIES-A'").get(),'blocked history must not partially save a rule');
+ await send({action:'import_ignore_preview',pattern:'TEST*',mode:'prefix'},400);
+ assert.equal(sql.prepare("select count(*) n from import_ignore_rules where scope='another-user'").get().n,0);
+ console.log('PASS prefix/exact rules, archive originals, mixed orders, repeat saves/imports, stop/reimport restore, stale rule guard and stock safety');
+})().catch(e=>{console.error(e);process.exitCode=1});

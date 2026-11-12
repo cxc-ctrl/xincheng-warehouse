@@ -9,7 +9,7 @@ export async function readFreightData(d:D1Database,scope:string):Promise<Freight
   d.prepare('SELECT * FROM freight_imports WHERE scope=? ORDER BY created_at DESC').bind(scope),
   d.prepare('SELECT fee_cents,updated_at FROM packing_settings WHERE scope=?').bind(scope),
   d.prepare("SELECT DISTINCT shop,order_id FROM import_conflict_groups WHERE scope=? AND status='pending'").bind(scope),
-  d.prepare('SELECT DISTINCT shop,order_id FROM ignored_order_lines WHERE scope=?').bind(scope),
+  d.prepare('SELECT DISTINCT i.shop,i.order_id FROM ignored_order_lines i WHERE i.scope=? AND NOT EXISTS(SELECT 1 FROM orders o WHERE o.scope=i.scope AND o.key=i.order_key)').bind(scope),
  ]);return {ignoredSkuOrders:(r[5].results as {shop:string;order_id:string}[]).map(o=>JSON.stringify([o.shop,o.order_id])),pendingImportOrders:(r[4].results as {shop:string;order_id:string}[]).map(o=>JSON.stringify([o.shop,o.order_id])),freightBills:r[0].results as FreightBill[],freightPeriods:r[1].results as FreightPeriod[],freightImports:r[2].results as FreightImport[],packingSettings:(r[3].results[0] as {fee_cents:number|null;updated_at:number}|undefined)??{fee_cents:null,updated_at:0}};
 }
 export function financeFields(raw:OrderLine){

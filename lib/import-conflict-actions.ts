@@ -1,5 +1,5 @@
 import {appendOrderImport} from './order-actions';
-import {ignoredOrderCode,IGNORED_ORDER_REASON} from './order-scope';
+import {ignoredOrderCode,IGNORED_ORDER_REASON,readImportIgnoreRules} from './order-scope';
 import {orderFingerprint} from './order-policy';
 import {appendAutoPrintAccounting} from './print-accounting';
 import {appendShopSnapshots} from './shop-actions';
@@ -16,7 +16,7 @@ export async function appendImportConflict(b:Record<string,any>,d:D1Database,sco
   const group=b.group as ImportConflictGroup,filename=v.str(b.filename,300);if(!group||!filename||!Array.isArray(group.rows)||group.rows.length<2||group.rows.length>2000)throw Error('冲突明细组无效');
   if(!group.order_id||!group.code||group.key!==JSON.stringify([...(group.shop.trim()?[]:[group.rows[0]?.line.platform]),group.shop.trim(),group.order_id,group.code]))throw Error('冲突订单编码无效');
   if(group.rows.some(r=>!r.line||r.line.key!==group.key||r.line.shop!==group.shop||r.line.code!==group.code||r.line.order_id!==group.order_id||!Number.isSafeInteger(r.row)||r.row<1))throw Error('冲突明细不属于同一商品');
-  if(ignoredOrderCode(group.code)){ss.push(d.prepare(`INSERT INTO ignored_order_lines(scope,order_key,shop,order_id,code,payload,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE ${guard} ON CONFLICT(scope,order_key) DO NOTHING`).bind(scope,group.key,group.shop,group.order_id,group.code,JSON.stringify(group),IGNORED_ORDER_REASON,now,scope,rid));return true;}
+  if(ignoredOrderCode(group.code,await readImportIgnoreRules(d,scope))){ss.push(d.prepare(`INSERT INTO ignored_order_lines(scope,order_key,shop,order_id,code,payload,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE ${guard} ON CONFLICT(scope,order_key) DO NOTHING`).bind(scope,group.key,group.shop,group.order_id,group.code,JSON.stringify(group),IGNORED_ORDER_REASON,now,scope,rid));return true;}
   const payload=JSON.stringify(group),bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload)),id=Array.from(new Uint8Array(bytes),n=>n.toString(16).padStart(2,'0')).join('');
   if(await d.prepare('SELECT 1 FROM import_conflict_groups WHERE scope=? AND id=?').bind(scope,id).first())return true;
   if(await d.prepare('SELECT 1 FROM work_order_exclusions WHERE scope=? AND shop=? AND order_id=?').bind(scope,group.shop,group.order_id).first())return true;
