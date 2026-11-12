@@ -1,3 +1,5 @@
+import {transparentDigitRange} from './transparent-digit-range';
+import {readDigitConditions,guardDigitConditions} from './warehouse-digit-conditions';
 import {prepareAutoStocks,guardAutoStocks} from './product-sync-auto-stock';
 import {appendAutoPrintAccounting} from './print-accounting';
 import {appendObsoletePrintRuleCleanup} from './print-rule-lifecycle';
@@ -100,6 +102,17 @@ export async function appendSupplyImport(d:DB,ss:D1PreparedStatement[],scope:str
  const profile=await d.prepare('SELECT * FROM product_supply_profiles WHERE scope=? AND code=?').bind(scope,o.code).first<Obj>();if(!profile)return {handled:false,cost:undefined};
  const productState=await d.prepare('SELECT tracking_at,cost,stock_mode FROM products WHERE scope=? AND code=?').bind(scope,o.code).first<{tracking_at:number|null;cost:number|null;stock_mode:string}>();
  const cfg=JSON.parse(profile.config),v=cfg.variant;
+ const transparent=/^透明\s*\d+(?:\.\d+)?\s*cm数字贴/i.test(v.name||'')?transparentDigitRange(v.name,await readDigitConditions(d,scope),o.spec):null;
+ if(transparent?.outside&&!isPrintOnly(v)){
+  const previous=await d.prepare('SELECT status FROM digit_fulfillments WHERE scope=? AND order_key=?').bind(scope,o.key).first<{status:string}>();
+  if(previous?.status==='manual'||previous?.status==='print')return {handled:false,cost:undefined};
+  const consumed=await d.prepare('SELECT 1 FROM order_stocks WHERE scope=? AND order_key=? AND deducted_qty>0').bind(scope,o.key).first();
+  if(consumed)return {handled:true,cost:old?.unit_cost_snapshot??null};
+  await guardDigitConditions(d,ss,scope,rid,guard);
+  const reason=transparent.condition.out_of_range==='建议整单打印'?'建议整单打印：透明数字贴超出仓库备货范围，须人工确认':'透明数字贴超出仓库备货范围，请人工核对';
+  saveChoice(d,ss,scope,o,now,rid,guard,'pending','透明',reason,[]);
+  return {handled:true,cost:null};
+ }
  if(['现货','现货优先（按条件）'].includes(v.supply_mode)&&cfg.digit_rules_owner==='warehouse'){
   const linked=await d.prepare('SELECT 1 FROM stock_rules r JOIN digit_stock_variants v ON v.scope=r.scope AND v.base_code=r.stock_code WHERE r.scope=? AND r.sales_code=? LIMIT 1').bind(scope,o.code).first();
   if(linked)return {handled:false,cost:undefined};
@@ -149,3 +162,4 @@ export async function readProductCenterCosts(d:DB,scope:string,raw:Obj){
  const rows=(await d.prepare('SELECT code,name,unit,cost,updated_at FROM physical_stocks WHERE scope=? AND archived=0 AND code IN(SELECT value FROM json_each(?)) ORDER BY code').bind(scope,JSON.stringify([...new Set(raw.codes)])).all<Obj>()).results;
  return {rows,basis:await hash(rows)};
 }
+
