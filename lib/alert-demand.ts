@@ -1,3 +1,4 @@
+import {ignoredOrderCode} from './order-scope';
 import {isValid,isPrintOnly,type Product,type PhysicalStock,type StockRule,type OrderLine} from './model';
 import {fulfillmentPlan,type DigitVariant} from './digit-colors';
 import type {DigitCondition} from './warehouse-digit-conditions';
@@ -24,6 +25,7 @@ export function buildAlertDemand(products:Product[],stocks:PhysicalStock[],rules
  const totals=new Map<string,{usage:number;recent:number;activeDays:Set<number>;maxOrder:number}>();
  let valid=0,matched=0,unresolved=0,printed=0;const unresolvedCodes=new Set<string>(),dailyDates=new Set<number>();
  for(const o of orders){
+  if(ignoredOrderCode(o.code,context?.importIgnoreRules??[]))continue;
   if(!isValid(o.status)||o.quantity<=0||o.order_time<start||o.order_time>=end)continue;valid++;dailyDates.add(dayStart(o.order_time));
   const p=pmap.get(o.code);if(isPrintOnly(p)||o.fulfillment_mode==='print'||p?.tracking_enabled===0){printed++;continue;}
   if(!p){unresolved++;unresolvedCodes.add(o.code);continue;}
@@ -42,3 +44,4 @@ export function buildAlertDemand(products:Product[],stocks:PhysicalStock[],rules
  }
  return {totals,days,shortDays,start,end,source,valid,matched,unresolved,printed,unresolvedCodes:[...unresolvedCodes],salesDates:dailyDates.size};
 }
+

@@ -1,3 +1,4 @@
+import {ignoredOrderCode} from './order-scope';
 import {forecastStock} from './product-report';
 import {transparentDigitRange} from './transparent-digit-range';
 import type {Product,PhysicalStock,StockRule,OrderLine,InventoryRow} from './model';
@@ -10,9 +11,14 @@ export type StockAlert=InventoryRow&{stage:'review'|'restock';priority:'review'|
 export type StockAlertSnapshot={partial?:boolean;asOf:number;rows:StockAlert[];ignoredRows:StockAlert[];otherRows:StockAlert[];review:number;restock:number;urgent:number;attention:number;uncounted:number;observedDays:number;predictionNote:string;settings:AlertSettings;reference:{source:string;start:number;end:number;valid:number;matched:number;unresolved:number;printed:number;unresolvedCodes:string[]}};
 export const alertKey=(r:Pick<InventoryRow,'kind'|'code'>)=>JSON.stringify([r.kind,r.code]);
 export function buildStockAlerts(products:Product[],stocks:PhysicalStock[],rules:StockRule[],orders:OrderLine[],purchases:Purchase[]=[],now=Date.now(),context?:AlertDemandContext):StockAlertSnapshot{
+ const ignoreRules=context?.importIgnoreRules??[];
+ const ignored=new Set(products.filter(p=>ignoredOrderCode(p.code,ignoreRules)).map(p=>p.code));
+ products=products.filter(p=>!ignored.has(p.code));
  const conditions=context?.conditions??[];
  products=products.map(p=>transparentDigitRange(p.name,conditions)?.outside?{...p,supply_mode:'打印定制'}:p);
  const eligibleStock=new Set(stocks.filter(s=>{
+  const links=rules.filter(r=>r.stock_code===s.code);
+  if(links.length?links.every(r=>ignored.has(r.sales_code)):ignoredOrderCode(s.code,ignoreRules))return false;
   const transparent=transparentDigitRange(s.name,conditions);
   if(transparent?.outside){const r=transparent.range,c=transparent.condition;if(!r||!c.enabled||r.start>c.end||r.end<c.start)return false;}
   const v=context?.variants?.find(v=>v.stock_code===s.code),c=v&&conditions.find(c=>c.color===v.color&&c.size===v.size);
@@ -48,3 +54,4 @@ export function filterStockAlerts(snapshot:StockAlertSnapshot,query='',filter='a
  const q=query.trim().toLowerCase(),list=filter==='counted'?[...snapshot.rows,...snapshot.ignoredRows,...snapshot.otherRows].filter(r=>r.quantity!=null):filter==='normal'?snapshot.otherRows.filter(r=>r.quantity!=null):filter==='ignored'?snapshot.ignoredRows:filter==='uncounted'?snapshot.otherRows.filter(r=>r.quantity==null):filter==='everything'?[...snapshot.rows,...snapshot.ignoredRows,...snapshot.otherRows]:snapshot.rows;
  return list.filter(r=>(['all','counted','normal','ignored','uncounted','everything'].includes(filter)||r.stage===filter||r.priority===filter||r.reasons.some(x=>x.kind===filter))&&(!q||[r.name,r.code,r.spec,r.location,...r.sales_codes,...r.sales_names,...r.reasons.map(x=>x.text)].join(' ').toLowerCase().includes(q)));
 }
+

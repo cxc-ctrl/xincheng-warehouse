@@ -1,14 +1,15 @@
+import {readImportIgnoreRules,type ImportIgnoreRule} from './order-scope';
 import type {OrderLine} from './model';
 export const ALERT_DAY=86400000;
 export type AlertSettings={sheetMinimum:number;stickerMinimum:number;leadDays:number;bufferDays:number;updated_at:number};
 export const DEFAULT_ALERT_SETTINGS:AlertSettings={sheetMinimum:200,stickerMinimum:2000,leadDays:3,bufferDays:2,updated_at:0};
 export type AlertIgnore={kind:'physical'|'product';code:string;until_at:number;updated_at:number};
 export type AlertSample={filename:string;start_at:number;end_at:number;orders:OrderLine[]};
-export type AlertPolicy={settings:AlertSettings;ignores:AlertIgnore[];sample?:AlertSample;excluded?:string[]};
+export type AlertPolicy={settings:AlertSettings;ignores:AlertIgnore[];sample?:AlertSample;excluded?:string[];importIgnoreRules?:ImportIgnoreRule[]};
 export async function readAlertPolicy(d:D1Database,scope:string):Promise<AlertPolicy>{
  const [s,i,p,e]=await d.batch([d.prepare('SELECT * FROM stock_alert_settings WHERE scope=?').bind(scope),d.prepare('SELECT kind,code,until_at,updated_at FROM stock_alert_ignores WHERE scope=?').bind(scope),d.prepare('SELECT * FROM stock_alert_sample WHERE scope=?').bind(scope),d.prepare('SELECT shop,order_id FROM work_order_exclusions WHERE scope=?').bind(scope)]);
  const row=s.results[0] as {payload:string;updated_at:number}|undefined,sample=p.results[0] as {filename:string;start_at:number;end_at:number;orders_json:string}|undefined;
- return {settings:row?{...DEFAULT_ALERT_SETTINGS,...JSON.parse(row.payload),updated_at:row.updated_at}:{...DEFAULT_ALERT_SETTINGS},ignores:i.results as AlertIgnore[],sample:sample?{filename:sample.filename,start_at:sample.start_at,end_at:sample.end_at,orders:JSON.parse(sample.orders_json)}:undefined,excluded:e.results.map((r:any)=>JSON.stringify([r.shop,r.order_id]))};
+ return {importIgnoreRules:await readImportIgnoreRules(d,scope),settings:row?{...DEFAULT_ALERT_SETTINGS,...JSON.parse(row.payload),updated_at:row.updated_at}:{...DEFAULT_ALERT_SETTINGS},ignores:i.results as AlertIgnore[],sample:sample?{filename:sample.filename,start_at:sample.start_at,end_at:sample.end_at,orders:JSON.parse(sample.orders_json)}:undefined,excluded:e.results.map((r:any)=>JSON.stringify([r.shop,r.order_id]))};
 }
 export async function appendAlertPolicy(b:Record<string,any>,d:D1Database,scope:string,now:number,rid:string,ss:D1PreparedStatement[],guard:string){
  if(b.action==='stock_alert_settings'){
@@ -27,3 +28,4 @@ export async function appendAlertPolicy(b:Record<string,any>,d:D1Database,scope:
   ss.push(d.prepare(`UPDATE ${table} SET ignore_warning=? WHERE scope=? AND code=? AND ${guard}`).bind(b.mode==='forever'?1:0,scope,b.code,scope,rid));return true;
  }return false;
 }
+
