@@ -35,6 +35,17 @@ export async function shopActionResponse(b:Record<string,any>,d:D1Database,scope
  return {shopData,shopOrderRefresh};
 }
 export async function appendShopAction(b:Record<string,any>,d:D1Database,scope:string,now:number,rid:string,ss:D1PreparedStatement[],guard:string,v:any){
+ if(b.action==='shop_delete'){
+  const id=text(b.id,'店铺ID'),old=await d.prepare('SELECT * FROM shop_configs WHERE scope=? AND id=?').bind(scope,id).first<Shop>();
+  if(!old||old.updated_at!==b.updated_at)throw new Error('店铺配置已变化，请刷新后重试');
+  const referenced=`EXISTS(SELECT 1 FROM orders WHERE scope=? AND platform=? AND shop=?) OR EXISTS(SELECT 1 FROM shop_order_pricing a JOIN shop_pricing_versions v ON v.scope=a.scope AND v.id=a.version_id WHERE v.scope=? AND v.shop_id=?) OR EXISTS(SELECT 1 FROM shop_held_orders WHERE scope=? AND shop_id=?) OR EXISTS(SELECT 1 FROM order_source_shops WHERE scope=? AND platform=? AND shop=?) OR EXISTS(SELECT 1 FROM ignored_order_lines WHERE scope=? AND shop=?)`;
+  const args=[scope,old.platform,old.code,scope,id,scope,id,scope,old.platform,old.code,scope,old.code];
+  if((await d.prepare(`SELECT (${referenced}) AS used`).bind(...args).first<{used:number}>())?.used)throw new Error('该店铺已有订单、结算或导入关联，请改为停用，历史记录需要保留');
+  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (NOT EXISTS(SELECT 1 FROM shop_configs WHERE scope=? AND id=? AND updated_at=?) OR ${referenced}) THEN json('店铺已变化或已有业务记录，无法删除') ELSE 1 END`).bind(scope,rid,scope,id,old.updated_at,...args));
+  ss.push(d.prepare(`DELETE FROM shop_pricing_versions WHERE scope=? AND shop_id=? AND ${guard}`).bind(scope,id,scope,rid));
+  ss.push(d.prepare(`DELETE FROM shop_configs WHERE scope=? AND id=? AND ${guard}`).bind(scope,id,scope,rid));
+  return true;
+ }
  if(b.action==='shop_settings'){
   const team=text(b.supplier_team,'供货团队名称');ss.push(d.prepare(`INSERT INTO shop_settings SELECT ?,?,? WHERE ${guard} ON CONFLICT(scope) DO UPDATE SET supplier_team=excluded.supplier_team,updated_at=excluded.updated_at`).bind(scope,team,now,scope,rid));return true;
  }
