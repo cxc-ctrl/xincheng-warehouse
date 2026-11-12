@@ -1,4 +1,5 @@
 import {forecastStock} from './product-report';
+import {transparentDigitRange} from './transparent-digit-range';
 import type {Product,PhysicalStock,StockRule,OrderLine,InventoryRow} from './model';
 import type {Purchase} from './purchasing';
 import {buildAlertDemand,type AlertDemandContext} from './alert-demand';
@@ -9,10 +10,19 @@ export type StockAlert=InventoryRow&{stage:'review'|'restock';priority:'review'|
 export type StockAlertSnapshot={partial?:boolean;asOf:number;rows:StockAlert[];ignoredRows:StockAlert[];otherRows:StockAlert[];review:number;restock:number;urgent:number;attention:number;uncounted:number;observedDays:number;predictionNote:string;settings:AlertSettings;reference:{source:string;start:number;end:number;valid:number;matched:number;unresolved:number;printed:number;unresolvedCodes:string[]}};
 export const alertKey=(r:Pick<InventoryRow,'kind'|'code'>)=>JSON.stringify([r.kind,r.code]);
 export function buildStockAlerts(products:Product[],stocks:PhysicalStock[],rules:StockRule[],orders:OrderLine[],purchases:Purchase[]=[],now=Date.now(),context?:AlertDemandContext):StockAlertSnapshot{
+ const conditions=context?.conditions??[];
+ products=products.map(p=>transparentDigitRange(p.name,conditions)?.outside?{...p,supply_mode:'打印定制'}:p);
+ const eligibleStock=new Set(stocks.filter(s=>{
+  const transparent=transparentDigitRange(s.name,conditions);
+  if(transparent?.outside){const r=transparent.range,c=transparent.condition;if(!r||!c.enabled||r.start>c.end||r.end<c.start)return false;}
+  const v=context?.variants?.find(v=>v.stock_code===s.code),c=v&&conditions.find(c=>c.color===v.color&&c.size===v.size);
+  return !c||!!c.enabled&&v!.start<=c.end&&v!.end>=c.start;
+ }).map(s=>s.code));
  const settings=context?.settings??{...DEFAULT_ALERT_SETTINGS},demand=buildAlertDemand(products,stocks,rules,orders,context,now),ignores=new Map((context?.ignores??[]).map(r=>[alertKey(r),r]));
  const pending=new Map<string,Purchase[]>();for(const p of purchases){if(p.status!=='pending')continue;const key=alertKey(p),a=pending.get(key)??[];a.push(p);pending.set(key,a);}
  const rows:StockAlert[]=[],ignoredRows:StockAlert[]=[],otherRows:StockAlert[]=[];
  for(const row of forecastStock(products,stocks,rules,[],{now})){
+  if(row.kind==='physical'&&!eligibleStock.has(row.code))continue;
   const t=demand.totals.get(alertKey(row)),usage=t?.usage??0,recent=t?.recent??0,average=demand.days?usage/demand.days:0,shortAverage=demand.shortDays?recent/demand.shortDays:0;
   const accelerating=demand.days>=7&&(t?.activeDays.size??0)>=3&&shortAverage>average*1.25,daily=accelerating?shortAverage:average;
   const fixedMinimum=Math.max(row.unit==='张'?settings.sheetMinimum:row.unit==='贴'?settings.stickerMinimum:0,row.minimum||0),forecastMinimum=Math.ceil(daily*(settings.leadDays+settings.bufferDays)),minimum=Math.max(fixedMinimum,forecastMinimum),q=row.quantity;

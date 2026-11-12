@@ -1,0 +1,11 @@
+const {assert,load,root}=require('./isolated-harness.cjs'),path=require('node:path');
+const {buildStockAlerts}=load(path.join(root,'lib/stock-alerts.ts'));
+const products=[{code:'PRINT',name:'打印品',supply_mode:'打印定制',stock_mode:'recipe',tracking_enabled:1},{code:'STOCK',name:'现货品',supply_mode:'现货',stock_mode:'recipe',tracking_enabled:1},{code:'TR',name:'透明10cm数字贴（1～150）',supply_mode:'现货',stock_mode:'recipe',tracking_enabled:1}];
+const stocks=['P','S','T','ORANGE'].map(code=>({code,name:code,unit:'张',quantity:-1,count_at:1,minimum:100,archived:0,spec:'',location:'',cost:1}));
+stocks[2].name='透明10cm数字贴（103～108）';
+const rules=[{sales_code:'PRINT',stock_code:'P',per_unit:1},{sales_code:'STOCK',stock_code:'S',per_unit:1},{sales_code:'TR',stock_code:'T',per_unit:1}];
+const ctx={conditions:[{color:'透明',size:10,start:1,end:100,enabled:1},{color:'橙色白字',size:1,start:1,end:100,enabled:1}],variants:[{stock_code:'ORANGE',color:'橙色白字',size:1,start:151,end:300,available_end:300}]};
+let a=buildStockAlerts(products,stocks,rules,[],[],Date.now(),ctx);
+assert.deepEqual(a.rows.map(r=>r.code),['S']);assert.equal(a.review,1);
+rules.push({sales_code:'STOCK',stock_code:'P',per_unit:1});a=buildStockAlerts(products,stocks,rules,[],[],Date.now(),ctx);assert.deepEqual(a.rows.map(r=>r.code).sort(),['P','S']);
+console.log('PASS print-only and out-of-range excluded; stocked negative and shared-stock warnings preserved');
