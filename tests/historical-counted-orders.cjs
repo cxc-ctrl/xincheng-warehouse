@@ -1,0 +1,23 @@
+const {assert,sql,load,root,db,send,product,imported,data,line}=require('./isolated-harness.cjs'),path=require('node:path');
+const {readHistoricalCountedKeys}=load(path.join(root,'lib/historical-counted-orders.ts'));
+const {digitOrderIssue}=load(path.join(root,'lib/order-issues.ts'));
+const {indexOrderFilters}=load(path.join(root,'lib/order-review-filters.ts'));
+(async()=>{
+ const at=Date.now()-20000;await product('OLD','红底白字1cm数字贴（1～10）');
+ await send({action:'physical_product',new_product:true,product:{code:'BOARD',name:'红底白字1cm数字贴（1～150）',unit:'张',cost:.5}});
+ await send({action:'stock_rule',sales_codes:['OLD'],items:[{stock_code:'BOARD',per_unit:1}],at});await send({action:'digit_color_setup'});
+ const o={...line('HIST','OLD',1,'已发货',at),spec:'1～10',remarks_available:1,buyer_remark:'',seller_remark:'',shipped_at:at+1000};await imported([o]);
+ assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0,'null inventory stays pending');
+ sql.prepare("update physical_stocks set quantity=0,count_at=?,updated_at=? where code='BOARD'").run(at+5000,at+5000);
+ const before=sql.prepare('select * from physical_stocks').all(),rawBefore=sql.prepare('select * from digit_fulfillments').all(),ordersBefore=sql.prepare('select * from orders').all();
+ assert((await readHistoricalCountedKeys(db,'isolated')).has(o.key),'zero balance with later count resolves legacy reminder without shortage');
+ let d=await data(),f=d.digitFulfillments.find(f=>f.order_key===o.key);assert.equal(f.historical_counted,true);assert.equal(f.status,'pending','stored dispatch decision is not falsely confirmed');assert.equal(digitOrderIssue(f),null);
+ const filters=indexOrderFilters(d.orders,new Map(d.digitFulfillments.map(f=>[f.order_key,f])),new Map(),new Map(d.products.map(p=>[p.code,p])),new Set());assert.equal(filters.counts.count,0);
+ assert.deepEqual(sql.prepare('select * from physical_stocks').all(),before);assert.deepEqual(sql.prepare('select * from digit_fulfillments').all(),rawBefore);assert.deepEqual(sql.prepare('select * from orders').all(),ordersBefore);
+ sql.prepare('update orders set shipped_at=NULL where key=?').run(o.key);assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0);
+ sql.prepare('update orders set shipped_at=? where key=?').run(at+6000,o.key);assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0,'shipment after count remains a real task');
+ sql.prepare('update orders set shipped_at=?,review=1 where key=?').run(at+1000,o.key);assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0);
+ sql.prepare('update orders set review=0 where key=?').run(o.key);sql.prepare("update physical_stocks set archived=1 where code='BOARD'").run();assert.equal((await readHistoricalCountedKeys(db,'isolated')).size,0);
+ assert.equal((await readHistoricalCountedKeys(db,'another')).size,0);
+ console.log('PASS derived historical resolution: later count (including zero), no writes, missing shipment/after-count/review/archived and scope safety');
+})().catch(e=>{console.error(e);process.exitCode=1});

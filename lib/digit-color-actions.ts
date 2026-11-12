@@ -1,3 +1,4 @@
+import {readHistoricalCountedKeys} from './historical-counted-orders';
 import {readRemarkRules,guardRemarkRules} from './digit-remark-actions';
 import {fixedGroupPlan,savedFixedGroups} from './digit-fixed-groups';
 import {DIGIT_CATALOG,RED_COLOR,digitSheet,digitSignature,fulfillmentPlan,type DigitVariant,type DigitFulfillment,type DigitItem,type ColorAllocation} from './digit-colors';
@@ -7,7 +8,8 @@ export async function readDigitColors(d:D1Database,scope:string){
  const result=await d.batch([d.prepare('SELECT base_code,color,stock_code,size,start,end,available_end FROM digit_stock_variants WHERE scope=?').bind(scope),d.prepare('SELECT order_key,status,color,reason,signature,updated_at,fixed_groups FROM digit_fulfillments WHERE scope=?').bind(scope),d.prepare("SELECT r.order_key,r.stock_code,1.0*r.per_unit*COALESCE(r.allocated_qty,o.quantity)/o.quantity AS per_unit,r.per_unit*COALESCE(r.allocated_qty,o.quantity) AS quantity,COALESCE(r.allocated_qty,o.quantity) AS allocated_qty,v.color FROM digit_fulfillment_rules r JOIN orders o ON o.scope=r.scope AND o.key=r.order_key JOIN digit_fulfillments f ON f.scope=r.scope AND f.order_key=r.order_key LEFT JOIN digit_stock_variants v ON v.scope=r.scope AND v.stock_code=r.stock_code AND (v.base_code IN (SELECT stock_code FROM stock_rules WHERE scope=r.scope AND sales_code=r.sales_code) OR v.base_code IN (SELECT value FROM json_each(CASE WHEN f.fixed_groups='' THEN '[]' ELSE f.fixed_groups END))) WHERE r.scope=? AND f.status IN ('auto','manual')").bind(scope)]);
  const routes=result[2].results as {order_key:string;stock_code:string;per_unit:number;quantity:number;allocated_qty:number;color:string}[];
  const allocations=new Map<string,Map<string,ColorAllocation>>();for(const r of routes)if(r.color){const map=allocations.get(r.order_key)??new Map();map.set(r.color,{color:r.color,quantity:r.allocated_qty});allocations.set(r.order_key,map);}
- const choices=(result[1].results as DigitFulfillment[]).map(f=>({...f,allocations:[...(allocations.get(f.order_key)?.values()??[])]}));
+ const historical=await readHistoricalCountedKeys(d,scope);
+ const choices=(result[1].results as DigitFulfillment[]).map(f=>({...f,historical_counted:historical.has(f.order_key),allocations:[...(allocations.get(f.order_key)?.values()??[])]}));
  return {digitConditions:await readDigitConditions(d,scope),digitVariants:result[0].results as DigitVariant[],digitFulfillments:choices,digitOrderRules:routes};
 }
 async function inputs(d:D1Database,scope:string,code?:string){

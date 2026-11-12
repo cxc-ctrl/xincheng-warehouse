@@ -117,7 +117,7 @@ export default function Warehouse(){
  const [reviewKey,setReviewKey]=useState<string|null>(null);
  const [analysisStart,setAnalysisStart]=useState<ReportTab>("sales");
  const reviewing=data.orders.find(o=>o.key===reviewKey);
- const reviewKeys=useMemo(()=>{const pending=new Set(data.digitFulfillments.filter(f=>f.status==='pending').map(f=>f.order_key)),conflicts=new Set(data.conflicts.map(c=>c.order_key));return new Set(data.orders.filter(o=>o.review===1||o.fulfillment_mode!=="print"&&pending.has(o.key)&&(o.shipped_qty??0)>0||conflicts.has(o.key)||cutoffTime(o,data.products,data.physical,data.rules,data.importTestMode)!=null).map(o=>o.key));},[data.orders,data.digitFulfillments,data.conflicts,data.products,data.physical,data.rules,data.importTestMode]);
+ const reviewKeys=useMemo(()=>{const pending=new Set(data.digitFulfillments.filter(f=>f.status==='pending'&&!f.historical_counted).map(f=>f.order_key)),conflicts=new Set(data.conflicts.map(c=>c.order_key));return new Set(data.orders.filter(o=>o.review===1||o.fulfillment_mode!=="print"&&pending.has(o.key)&&(o.shipped_qty??0)>0||conflicts.has(o.key)||cutoffTime(o,data.products,data.physical,data.rules,data.importTestMode)!=null).map(o=>o.key));},[data.orders,data.digitFulfillments,data.conflicts,data.products,data.physical,data.rules,data.importTestMode]);
  const digitChoices=useMemo(()=>new Map(data.digitFulfillments.map(f=>[f.order_key,f])),[data.digitFulfillments]);
  const orderIssues=useMemo(()=>new Map(data.orders.filter(o=>isValid(o.status)&&o.fulfillment_mode!=="print").flatMap(o=>{const issue=digitOrderIssue(digitChoices.get(o.key));return issue?[[o.key,issue] as const]:[];})),[data.orders,digitChoices]);
 

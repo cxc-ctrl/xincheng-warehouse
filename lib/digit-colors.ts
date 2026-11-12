@@ -8,7 +8,7 @@ import type {OrderLine,PhysicalStock,StockRule} from './model';
 export type DigitVariant={base_code:string;color:string;stock_code:string;size:number;start:number;end:number;available_end:number};
 export type ColorAllocation={color:string;quantity:number};
 export type DigitItem=StockRule&{allocated_qty?:number};
-export type DigitFulfillment={order_key:string;status:'auto'|'manual'|'pending'|'print';color:string;reason:string;signature:string;updated_at:number;allocations?:ColorAllocation[];fixed_groups?:string};
+export type DigitFulfillment={historical_counted?:boolean;order_key:string;status:'auto'|'manual'|'pending'|'print';color:string;reason:string;signature:string;updated_at:number;allocations?:ColorAllocation[];fixed_groups?:string};
 export const RED_COLOR='红底白字';
 export const DIGIT_CATALOG=catalog as {size:number;color:string;end:number}[];
 export const COLOR_NAMES=[...new Set(DIGIT_CATALOG.map(r=>r.color))];

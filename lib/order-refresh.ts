@@ -1,3 +1,4 @@
+import {readHistoricalCountedKeys} from './historical-counted-orders';
 import {supplyProducts} from './product-supply-view';
 import type {OrderLine,OrderStock,PhysicalStock,Product} from './model';
 import type {DigitFulfillment,ColorAllocation} from './digit-colors';
@@ -32,7 +33,8 @@ export async function readOrderRefresh(d:D1Database,scope:string,target:{key?:st
  ]);
  const routes=r[5].results as Route[],allocations=new Map<string,Map<string,ColorAllocation>>();
  for(const route of routes)if(route.color){const colors=allocations.get(route.order_key)??new Map();colors.set(route.color,{color:route.color,quantity:route.allocated_qty});allocations.set(route.order_key,colors);}
- const choices=(r[4].results as DigitFulfillment[]).map(f=>({...f,allocations:[...(allocations.get(f.order_key)?.values()??[])]})),choiceMap=new Map(choices.map(f=>[f.order_key,f])),jobs=r[8].results as PrintJob[];
+ const historical=await readHistoricalCountedKeys(d,scope);
+ const choices=(r[4].results as DigitFulfillment[]).map(f=>({...f,historical_counted:historical.has(f.order_key),allocations:[...(allocations.get(f.order_key)?.values()??[])]})),choiceMap=new Map(choices.map(f=>[f.order_key,f])),jobs=r[8].results as PrintJob[];
  const orders=enrichPrinting((r[0].results as (OrderLine&{tracking_json:string})[]).map(raw=>{const {tracking_json,...rest}=raw,f=choiceMap.get(raw.key);return {...rest,tracking_numbers:JSON.parse(tracking_json),...(f?{stock_items:routes.filter(a=>a.order_key===raw.key).map(a=>({stock_code:a.stock_code,per_unit:a.per_unit,quantity:a.quantity})),...(f.status==='print'?{fulfillment_mode:'print' as const,printing_note:f.color}:{})}:{})};}),jobs);
  if(!orders.length)throw new Error('订单已变化，请刷新');
  return {keys:orders.map(o=>o.key),shop,order_id:id,orders,products:await supplyProducts(d,scope,r[1].results as Product[]),physical:r[2].results as PhysicalStock[],orderStocks:r[3].results as OrderStock[],digitFulfillments:choices,digitOrderRules:routes,conflicts:r[6].results as OrderConflict[],returns:r[7].results as OrderReturn[],printJobs:jobs,printEvents:r[9].results as PrintEvent[],movements:r[10].results as Movement[]};

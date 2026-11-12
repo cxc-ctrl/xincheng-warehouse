@@ -1,3 +1,4 @@
+import {readHistoricalCountedKeys} from './historical-counted-orders';
 import {isUnmatchedOrder} from './order-review-filters';
 import {uncountedInventory} from './uncounted-inventory';
 import {readAlertPolicy} from './stock-alert-policy';
@@ -43,7 +44,8 @@ async function stockOrders(d:D1Database,scope:string){
  ]);
  const parts=new Map<string,{stock_code:string;per_unit:number;quantity:number}[]>();
  for(const raw of r[1].results as {order_key:string;stock_code:string;per_unit:number;quantity:number}[]){const {order_key,...item}=raw,a=parts.get(order_key)??[];a.push(item);parts.set(order_key,a);}
- const orders=(r[0].results as (OrderLine&{digit_status?:string})[]).map(o=>({...o,...(o.digit_status?{stock_items:parts.get(o.key)??[]}:{})}));
+ const historical=await readHistoricalCountedKeys(d,scope);
+ const orders=(r[0].results as (OrderLine&{digit_status?:string})[]).map(o=>({...o,historical_counted:historical.has(o.key),...(o.digit_status?{stock_items:parts.get(o.key)??[]}:{})}));
  return {orders,conflicts:r[2].results as {order_key:string}[],importConflicts:r[4].results as {order_key:string}[],importTestMode:(r[3].results[0] as {import_test_mode?:number}|undefined)?.import_test_mode===1};
 }
 export function dashboardSummary(c:{products:Product[];physical:PhysicalStock[];rules:StockRule[]},s:{orders:(OrderLine&{digit_status?:string})[];conflicts:{order_key:string}[];importConflicts?:{order_key:string}[];importTestMode:boolean},recent:any[],now=Date.now(),purchases:Purchase[]=[],policy?:AlertDemandContext):DashboardSummary{
@@ -52,7 +54,7 @@ export function dashboardSummary(c:{products:Product[];physical:PhysicalStock[];
  const states=warehouse.products.map(p=>stockReadiness(p,bySku.get(p.code)??[],smap)),stats=summarize(products,s.orders,30,now),conflicts=new Set(s.conflicts.map(c=>c.order_key));
  // Exclude digit stickers only from this ranking, before selecting its five rows.
  const digitCodes=new Set([...products.filter(p=>/数字贴|数码贴/.test(p.name+' '+p.category)).map(p=>p.code),...(policy?.variants??[]).flatMap(v=>[v.base_code,v.stock_code])]);
- const reviewOrders=s.orders.filter(o=>o.review===1||o.fulfillment_mode!=='print'&&o.digit_status==='pending'&&(o.shipped_qty??0)>0||conflicts.has(o.key)||cutoffTime(o,pmap.has(o.code)?[pmap.get(o.code)!]:[],c.physical,bySku.get(o.code)??[],s.importTestMode)!=null);
+ const reviewOrders=s.orders.filter(o=>o.review===1||o.fulfillment_mode!=='print'&&o.digit_status==='pending'&&!o.historical_counted&&(o.shipped_qty??0)>0||conflicts.has(o.key)||cutoffTime(o,pmap.has(o.code)?[pmap.get(o.code)!]:[],c.physical,bySku.get(o.code)??[],s.importTestMode)!=null);
  const reviews=new Set([...reviewOrders.map(o=>o.key),...(s.importConflicts??[]).map(o=>o.order_key)]).size,unmatchedOrders=s.orders.filter(o=>isUnmatchedOrder(o,pmap)),unmatched=unmatchedOrders.length,orderAttention=new Set([...reviewOrders.map(o=>o.key),...unmatchedOrders.map(o=>o.key),...(s.importConflicts??[]).map(o=>o.order_key)]).size;
  const stockAlerts=buildStockAlerts(c.products,c.physical,c.rules,s.orders,purchases,now,policy);
  return {stockAlerts:{...stockAlerts,otherRows:[],ignoredRows:[],partial:true},skuCount:warehouse.products.length,categories:new Set(warehouse.products.map(p=>p.category)).size,counted:stats.counted,link:states.filter(s=>s.label==='待关联'||s.label==='关联需修复').length,count:states.filter(s=>s.label.includes('盘点')).length,uncounted:ledger.filter(r=>r.quantity==null).length,excludedUncounted:uncountedInventory(c.products,c.physical,c.rules).filter(r=>!r.included).length,qty:stats.qty,orderCount:s.orders.length,alerts:stockAlerts.rows.length,reviews,unmatched,orderAttention,top:[...stats.sales.entries()].filter(([code,s])=>s.qty>0&&!digitCodes.has(code)).sort((a,b)=>b[1].qty-a[1].qty).slice(0,5).map(([code,s])=>({code,name:pmap.get(code)?.name||code||'未填编码',qty:s.qty})),movements:recent.map(m=>({...m,name:(m.kind==='physical'?smap.get(m.code)?.name:pmap.get(m.code)?.name)||m.code,unit:m.unit||(m.kind==='physical'?smap.get(m.code)?.unit:pmap.get(m.code)?.unit)||''})),asOf:now};
