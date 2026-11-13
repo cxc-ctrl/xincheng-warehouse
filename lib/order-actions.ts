@@ -1,3 +1,4 @@
+import {appendEntryRecord} from './inventory-entry-actions';
 import {sourceDetails,sourceNeedsReview,validateSource} from './order-sources';
 import {ignoredOrderCode,readImportIgnoreRules} from './order-scope';
 import {appendSupplyImport} from './product-center-sync';
@@ -108,20 +109,23 @@ export async function appendOrderReview(b:Record<string,any>,d:D1Database,scope:
  if(Array.isArray(b.items)&&b.items.length&&await d.prepare("SELECT 1 FROM print_jobs j WHERE scope=? AND shop=? AND order_id=? AND (accounting_mode='whole' OR EXISTS(SELECT 1 FROM json_each(j.member_keys) WHERE value=?))").bind(scope,o.shop,o.order_id,o.key).first())throw new Error('整单打印不回补现货库存，请只保存核对说明');
  if(!Array.isArray(b.items)||b.items.length>MAX_RECIPE_STOCKS)throw new Error('退货明细无效');
  const at=v.timestamp(b.at??now);if(at>now+60000||at<o.order_time)throw new Error('退货时间无效');
- const seen=new Set<string>();
+ const seen=new Set<string>(),entryItems:any[]=[];
  for(const item of b.items){
   const code=v.str(item.code),kind=item.kind;if(!['physical','product'].includes(kind)||seen.has(kind+code))throw new Error('退货实物无效或重复');seen.add(kind+code);
-  const n=v.qty(item.quantity,false),table=kind==='physical'?'physical_stocks':'products';
+  const n=v.qty(item.quantity),damaged=v.qty(item.damaged??0);if(n+damaged<=0)throw Error('请填写完好或损坏退回数量');const table=kind==='physical'?'physical_stocks':'products';
   const stock=await d.prepare(`SELECT quantity,count_at,unit FROM ${table} WHERE scope=? AND code=? ${kind==='physical'?'AND archived=0':"AND stock_mode='direct' AND tracking_enabled=1"}`).bind(scope,code).first<{quantity:number|null;count_at:number|null;unit:string}>();
   if(!stock||stock.quantity==null)throw new Error('退货前请先确认这条实物的库存：'+code);
   const rule=kind==='physical'?await d.prepare('SELECT per_unit,allocated_qty FROM order_effective_rules WHERE scope=? AND order_key=? AND stock_code=?').bind(scope,o.key,code).first<{per_unit:number;allocated_qty:number|null}>():null;
   const max=kind==='physical'&&rule?(rule.allocated_qty??o.shipped_qty??0)*rule.per_unit:(kind==='product'&&code===o.code?o.shipped_qty??0:0);
-  const returned=await d.prepare('SELECT COALESCE(SUM(quantity),0) AS n FROM order_returns WHERE scope=? AND order_key=? AND kind=? AND code=?').bind(scope,key,kind,code).first<{n:number}>();
-  if(n+(returned?.n??0)>max)throw new Error('退货数量超过该订单尚可退回的数量：'+code);
-  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (?+COALESCE((SELECT SUM(quantity) FROM order_returns WHERE scope=? AND order_key=? AND kind=? AND code=?),0)>? OR NOT EXISTS(SELECT 1 FROM ${table} WHERE scope=? AND code=? AND quantity IS NOT NULL AND count_at IS ?)) THEN json('退货超出已发数量或库存已变化，请刷新') ELSE 1 END`).bind(scope,rid,n,scope,key,kind,code,max,scope,code,stock.count_at));
-  ss.push(d.prepare(`INSERT INTO order_returns(scope,id,order_key,code,kind,quantity,at) SELECT ?,?,?,?,?,?,? WHERE ${guard}`).bind(scope,crypto.randomUUID(),key,code,kind,n,at,scope,rid));
+  const returned=await d.prepare('SELECT COALESCE(SUM(quantity+damaged),0) AS n FROM order_returns WHERE scope=? AND order_key=? AND kind=? AND code=?').bind(scope,key,kind,code).first<{n:number}>();
+  if(n+damaged+(returned?.n??0)>max)throw new Error('退货数量超过该订单尚可退回的数量：'+code);
+  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (?+COALESCE((SELECT SUM(quantity+damaged) FROM order_returns WHERE scope=? AND order_key=? AND kind=? AND code=?),0)>? OR NOT EXISTS(SELECT 1 FROM ${table} WHERE scope=? AND code=? AND quantity IS NOT NULL AND count_at IS ?)) THEN json('退货超出已发数量或库存已变化，请刷新') ELSE 1 END`).bind(scope,rid,n+damaged,scope,key,kind,code,max,scope,code,stock.count_at));
+  ss.push(d.prepare(`INSERT INTO order_returns(scope,id,order_key,code,kind,quantity,at,damaged) SELECT ?,?,?,?,?,?,?,? WHERE ${guard}`).bind(scope,crypto.randomUUID(),key,code,kind,n,at,damaged,scope,rid));
+  entryItems.push({kind,code,unit:stock.unit,quantity:n,damaged});
+  if(damaged)ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,effective_at,reference,unit) SELECT ?,?,?,?,'损坏退回',0,?,?,?,?,? WHERE ${guard}`).bind(scope,crypto.randomUUID(),code,kind,'订单 '+o.order_id+'；损坏退回 '+damaged+stock.unit+'，不回补、不重复扣库；'+note,now,at,key,stock.unit,scope,rid));
   ss.push(d.prepare(`UPDATE ${table} SET quantity=quantity+CASE WHEN count_at<? THEN ? ELSE 0 END,updated_at=? WHERE scope=? AND code=? AND ${guard}`).bind(at,n,now,scope,code,scope,rid));
-  ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,effective_at,reference,unit) SELECT ?,?,?,?,'退货入库',?,?,?,?,?,? WHERE ${guard}`).bind(scope,crypto.randomUUID(),code,kind,n,'订单 '+o.order_id+'；'+note+(at<=(stock.count_at??0)?'；不晚于盘点截止，数量已包含在盘点中':''),now,at,key,stock.unit,scope,rid));
+  if(n)ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,effective_at,reference,unit) SELECT ?,?,?,?,'退货入库',?,?,?,?,?,? WHERE ${guard}`).bind(scope,crypto.randomUUID(),code,kind,n,'订单 '+o.order_id+'；'+note+(at<=(stock.count_at??0)?'；不晚于盘点截止，数量已包含在盘点中':''),now,at,key,stock.unit,scope,rid));
  }
+ if(entryItems.length)appendEntryRecord(d,ss,scope,rid,guard,'退货入库',o.order_id,key,entryItems,note,String(b.operator||'仓库管理员'),at,now);
  ss.push(d.prepare(`UPDATE orders SET review=0,updated_at=? WHERE scope=? AND key=? AND ${guard}`).bind(now,scope,key,scope,rid));audit(note+(b.items.length?'；已登记实际退货入库。':'；本次无需库存回补。'));
 }

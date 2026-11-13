@@ -16,7 +16,7 @@ import {buildStockAlerts,type StockAlertSnapshot} from './stock-alerts';
 import type {Purchase} from './purchasing';
 import {warehouseCatalog,inventoryLedger,recipeStock,stockReadiness,summarize,type Product,type PhysicalStock,type StockRule,type OrderLine} from './model';
 
-export const WAREHOUSE_VIEWS=['ignoreRules','dashboard','stockAlerts','products','paper','purchasing','digitRules','history','shops','printing','import','analysis','freightCheck','all','order','inventoryExport'] as const;
+export const WAREHOUSE_VIEWS=['receiving','ignoreRules','dashboard','stockAlerts','products','paper','purchasing','digitRules','history','shops','printing','import','analysis','freightCheck','all','order','inventoryExport'] as const;
 export type WarehouseView=typeof WAREHOUSE_VIEWS[number];
 export type DashboardSummary={stockAlerts:StockAlertSnapshot;skuCount:number;categories:number;counted:number;link:number;count:number;uncounted:number;excludedUncounted?:number;qty:number;orderCount:number;alerts:number;reviews:number;unmatched:number;orderAttention:number;top:{code:string;name:string;qty:number}[];movements:{id:string;code:string;name:string;type:string;delta:number;unit:string;note:string;at:number}[];asOf:number};
 

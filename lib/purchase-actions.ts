@@ -1,3 +1,4 @@
+import {appendEntryRecord} from './inventory-entry-actions';
 import {type Purchase,type PurchaseList} from './purchasing';
 function text(value:unknown,max=160){if(typeof value!=='string'||value.length>max)throw new Error('采购信息格式不正确');return value.trim();}
 function kind(value:unknown){if(value!=='physical'&&value!=='product')throw new Error('请选择具体实物或独立成品');return value;}
@@ -50,6 +51,7 @@ export async function appendPurchase(b:Record<string,any>,d:D1Database,scope:str
   const eligible=p.kind==='physical'?'archived=0':"stock_mode='direct' AND tracking_enabled=1 AND count_at>=COALESCE(tracking_at,0)";
   ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND NOT EXISTS(SELECT 1 FROM ${table} WHERE scope=? AND code=? AND unit=? AND quantity IS NOT NULL AND count_at IS NOT NULL AND ${eligible}) THEN json('库存资料已变化，请刷新') ELSE 1 END`).bind(scope,rid,scope,p.code,p.unit));
   ss.push(d.prepare(`UPDATE ${table} SET quantity=quantity+?,cost=COALESCE(cost,?),updated_at=? WHERE scope=? AND code=? AND ${guard}`).bind(p.quantity,p.amount_cents/100/p.quantity,now,scope,p.code,scope,rid));
+  appendEntryRecord(d,ss,scope,rid,guard,'采购入库',id,'',[{kind:p.kind,code:p.code,name:p.name,unit:p.unit,quantity:p.quantity}],p.note||'采购到货',String(b.operator||'仓库管理员'),now,now);
   // Existing costs stay unchanged. Only a previously missing cost gets its first purchase price.
   ss.push(d.prepare(`INSERT INTO movements(scope,id,code,kind,type,delta,note,at,reference,unit) SELECT ?,?,?,?, '采购入库',?,?,?,?,? WHERE ${guard}`).bind(scope,crypto.randomUUID(),p.code,p.kind,p.quantity,`采购 ${p.id} · ${p.supplier||'未填写供应商'} · 金额 ${(p.amount_cents/100).toFixed(2)}元`,now,id,p.unit,scope,rid));
  }

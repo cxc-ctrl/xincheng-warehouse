@@ -45,7 +45,7 @@ export const orderConflicts=sqliteTable('order_conflicts',{
  scope:text('scope').notNull(),orderKey:text('order_key').notNull(),payload:text('payload').notNull(),reason:text('reason').notNull(),fingerprint:text('fingerprint').notNull(),createdAt:integer('created_at').notNull(),
 },t=>[primaryKey({columns:[t.scope,t.orderKey]})]);
 export const orderReturns=sqliteTable('order_returns',{
- scope:text('scope').notNull(),id:text('id').notNull(),orderKey:text('order_key').notNull(),code:text('code').notNull(),kind:text('kind').notNull(),quantity:integer('quantity').notNull(),at:integer('at').notNull(),
+ scope:text('scope').notNull(),id:text('id').notNull(),orderKey:text('order_key').notNull(),code:text('code').notNull(),kind:text('kind').notNull(),quantity:integer('quantity').notNull(),damaged:integer('damaged').notNull().default(0),at:integer('at').notNull(),
 },t=>[primaryKey({columns:[t.scope,t.id]}),index('returns_by_order').on(t.scope,t.orderKey,t.kind,t.code)]);
 
 // Configuration is separate from stock quantities and historical order costs.
@@ -130,3 +130,7 @@ export const purchaseDefaults=sqliteTable('purchase_defaults',{
 },t=>[primaryKey({columns:[t.scope,t.kind,t.code]})]);
 
 export const digitRemarkRules=sqliteTable('digit_remark_rules',{scope:text('scope').notNull(),id:text('id').notNull(),payload:text('payload').notNull(),updatedAt:integer('updated_at').notNull()},t=>[primaryKey({columns:[t.scope,t.id]})]);
+
+export const inventoryEntries=sqliteTable('inventory_entries',{
+ scope:text('scope').notNull(),id:text('id').notNull(),type:text('type').notNull(),orderKey:text('order_key').notNull().default(''),reference:text('reference').notNull().default(''),items:text('items').notNull(),note:text('note').notNull(),operator:text('operator').notNull(),receivedAt:integer('received_at').notNull(),createdAt:integer('created_at').notNull(),
+},t=>[primaryKey({columns:[t.scope,t.id]}),index('inventory_entries_recent').on(t.scope,t.createdAt)]);

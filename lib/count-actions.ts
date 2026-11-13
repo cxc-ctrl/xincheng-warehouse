@@ -17,7 +17,7 @@ export function appendInventoryCount(
  statements.push(d.prepare(`UPDATE ${table} SET quantity=?,count_at=?,updated_at=? WHERE scope=? AND code=? AND ${guard}`).bind(quantity, at, now, scope, code, scope, rid));
  // Backdated counts must retain later receipts, returns and manual adjustments.
  // Order deductions are replayed separately; count/replay audit rows are not receipts.
- statements.push(d.prepare(`UPDATE ${table} SET quantity=quantity+COALESCE((SELECT SUM(delta) FROM movements WHERE scope=? AND code=? AND kind=? AND COALESCE(effective_at,at)>? AND (type LIKE '%补货入库' OR type LIKE '%人工调整' OR type IN ('退货入库','采购入库','损坏出库','销毁出库','撤销报损'))),0) WHERE scope=? AND code=? AND ${guard}`)
+ statements.push(d.prepare(`UPDATE ${table} SET quantity=quantity+COALESCE((SELECT SUM(delta) FROM movements WHERE scope=? AND code=? AND kind=? AND COALESCE(effective_at,at)>? AND (type LIKE '%补货入库' OR type LIKE '%人工调整' OR type IN ('退货入库','其他入库','采购入库','损坏出库','销毁出库','撤销报损'))),0) WHERE scope=? AND code=? AND ${guard}`)
   .bind(scope,code,physical?'physical':'product',at,scope,code,scope,rid));
  statements.push(d.prepare(`UPDATE ${table} SET quantity=quantity+COALESCE((SELECT SUM(quantity) FROM print_stock_corrections WHERE scope=? AND code=? AND kind=? AND shipment_at<=? AND returned_at>?),0) WHERE scope=? AND code=? AND ${guard}`)
   .bind(scope,code,physical?'physical':'product',at,at,scope,code,scope,rid));

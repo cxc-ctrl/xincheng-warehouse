@@ -12,7 +12,7 @@ const {assert,sql,send,product,imported,data,line,qty}=require('./isolated-harne
  assert.equal(qty('IN-BOARD'),1999);
  assert.equal(qty('OUT-BOARD'),2000);
  let d=await data(),f=d.digitFulfillments.find(f=>f.order_key.includes('OUT'));
- assert(f.reason.startsWith('建议整单打印'));
+ assert.equal(f.status,'print');assert(d.printJobs.some(j=>JSON.parse(j.member_keys||'[]').includes(f.order_key)));
  assert.equal(d.products.find(p=>p.code==='OUT').supply_mode,'打印定制');
  assert.equal(d.products.find(p=>p.code==='IN').supply_mode,'现货');
  console.log('PASS transparent limits: inside deducts, outside held for printing, quantity untouched outside');

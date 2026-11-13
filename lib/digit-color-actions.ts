@@ -70,7 +70,7 @@ export async function appendDigitImport(d:D1Database,ss:D1PreparedStatement[],sc
  const product=await d.prepare('SELECT name FROM products WHERE scope=? AND code=?').bind(scope,o.code).first<{name:string}>();
  const plan=fulfillmentPlan({...o,title:product?.name||o.title},state.rules,state.variants,state.stocks,undefined,state.conditions,state.remarkRules);
  await guardDigitConditions(d,ss,scope,rid,guard);await guardRemarkRules(d,ss,scope,rid,guard);
- if(plan?.status==='pending'&&plan.reason.startsWith('建议整单打印')){
+ if(plan?.status==='print'||plan?.status==='pending'&&plan.reason.startsWith('建议整单打印')){
   const sizes=new Set(state.variants.filter(v=>state.rules.some(r=>r.sales_code===o.code&&r.stock_code===v.base_code)).map(v=>v.size));
   const rules=new Set(state.conditions.filter(c=>c.enabled&&sizes.has(c.size)&&plan.allocations.some(a=>a.color===c.color)).map(c=>c.print_rule_id).filter(Boolean));
   if(rules.size===1)ss.push(d.prepare(`INSERT INTO print_rule_matches(scope,shop,order_id,code,rule_id,updated_at) SELECT ?,?,?,?,?,? WHERE ${guard} ON CONFLICT(scope,shop,order_id,code) DO NOTHING`).bind(scope,o.shop,o.order_id,o.code,[...rules][0],now,scope,rid));
@@ -158,6 +158,11 @@ export async function appendDigitAction(b:Record<string,any>,d:D1Database,scope:
  if(plan.status==='pending'){
   if(!automatic)throw new Error(plan.reason);
   saveChoice(d,ss,scope,o,now,rid,guard,'pending',plan.color,plan.reason,[]);return true;
+ }
+ if(plan.status==='print'){
+  if(old.some(r=>r.deducted_qty>0))throw Error('已有出库记录，请人工核对，不自动转打印');
+  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (NOT EXISTS(SELECT 1 FROM digit_fulfillments WHERE scope=? AND order_key=? AND updated_at=?) OR EXISTS(SELECT 1 FROM order_stocks WHERE scope=? AND order_key=? AND deducted_qty>0) OR EXISTS(SELECT 1 FROM order_returns WHERE scope=? AND order_key=?)) THEN json('订单履约记录已变化') ELSE 1 END`).bind(scope,rid,scope,o.key,f.updated_at,scope,o.key,scope,o.key));
+  saveChoice(d,ss,scope,o,now,rid,guard,'print',plan.color,plan.reason,[]);return true;
  }
  const items=plan.items;
  if(fixed){

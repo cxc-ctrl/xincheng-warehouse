@@ -126,5 +126,8 @@ export function fulfillmentPlan(o:OrderLine,rules:StockRule[],variants:DigitVari
   for(const a of decision.allocations){const parts=colorRules(o.code,a.color,rules,variants);if(!parts?.length)throw new Error('无法匹配颜色版面');for(const r of parts){const v=variants.find(v=>v.stock_code===r.stock_code);const c=conditions?.find(c=>c.color===a.color&&c.size===v?.size);if(conditions&&(!c||!c.enabled))throw new Error('数字贴条件未设置或已停用，请到仓库配置');if(c&&(saleRange.start<c.start||saleRange.end>c.end))throw new Error(c.out_of_range==='建议整单打印'?'建议整单打印：超出仓库配置的备货范围，须人工确认':'销售数字范围超出仓库配置的备货范围，请人工核对');if(!c&&v&&saleRange.end>v.available_end)throw new Error('销售数字范围超出该颜色备货范围，请核对实际发货');items.push({...r,allocated_qty:a.quantity});}}
   for(const r of items){const s=stocks.find(s=>s.code===r.stock_code&&!s.archived);if(!s)throw new Error('对应颜色库存已移除，请先建立对应库存');if(s.quantity==null)throw new Error('对应颜色库存尚未盘点，请先盘点再确认');if(s.quantity<r.allocated_qty!*r.per_unit){const v=variants.find(v=>v.stock_code===r.stock_code),c=conditions?.find(c=>c.color===v?.color&&c.size===v?.size);throw new Error((c?.shortage==='建议整单打印'?'建议整单打印：库存不足，须人工确认；':'对应颜色库存不足：')+s.name+'需'+r.allocated_qty!*r.per_unit+'张，现存'+s.quantity+'张');}}
   return {...decision,items,status:'auto' as const};
- }catch(e){return {...decision,reason:e instanceof Error?e.message:'颜色版面无法匹配',items:[] as DigitItem[],status:'pending' as const};}
+ }catch(e){const reason=e instanceof Error?e.message:'颜色版面无法匹配';
+  const autoPrint=reason==='该颜色缺少对应数字版面，请选择实际可发的颜色'||reason==='对应颜色库存已移除，请先建立对应库存'||reason.includes('超出仓库配置的备货范围')||reason==='销售数字范围超出该颜色备货范围，请核对实际发货';
+  return {...decision,reason:autoPrint?'数字贴自动转打印：'+reason:reason,items:[] as DigitItem[],status:autoPrint?'print' as const:'pending' as const};}
+
 }

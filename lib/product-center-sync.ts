@@ -111,7 +111,7 @@ export async function appendSupplyImport(d:DB,ss:D1PreparedStatement[],scope:str
   if(consumed)return {handled:true,cost:old?.unit_cost_snapshot??null};
   await guardDigitConditions(d,ss,scope,rid,guard);
   const reason=transparent.condition.out_of_range==='建议整单打印'?'建议整单打印：透明数字贴超出仓库备货范围，须人工确认':'透明数字贴超出仓库备货范围，请人工核对';
-  saveChoice(d,ss,scope,o,now,rid,guard,'pending','透明',reason,[]);
+  saveChoice(d,ss,scope,o,now,rid,guard,'print','透明','数字贴自动转打印：超出仓库备货范围',[]);
   return {handled:true,cost:null};
  }
  if(['现货','现货优先（按条件）'].includes(v.supply_mode)&&cfg.digit_rules_owner==='warehouse'){

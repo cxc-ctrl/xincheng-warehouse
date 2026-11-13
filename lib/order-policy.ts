@@ -23,4 +23,4 @@ export function cutoffTime(o:OrderLine,products:Product[],stocks:PhysicalStock[]
  return pending.length?Math.max(...pending):null;
 }
 export type OrderConflict={order_key:string;payload:string;reason:string;fingerprint:string;created_at:number};
-export type OrderReturn={order_key:string;code:string;kind:'physical'|'product';quantity:number;at:number};
+export type OrderReturn={damaged?:number;order_key:string;code:string;kind:'physical'|'product';quantity:number;at:number};

@@ -26,7 +26,7 @@ export async function readOrderRefresh(d:D1Database,scope:string,target:{key?:st
   d.prepare(`SELECT order_key,status,color,reason,signature,updated_at,fixed_groups FROM digit_fulfillments WHERE scope=? AND order_key IN (${members})`).bind(scope,...args),
   d.prepare("SELECT r.order_key,r.stock_code,1.0*r.per_unit*COALESCE(r.allocated_qty,o.quantity)/o.quantity AS per_unit,r.per_unit*COALESCE(r.allocated_qty,o.quantity) AS quantity,COALESCE(r.allocated_qty,o.quantity) AS allocated_qty,v.color FROM digit_fulfillment_rules r JOIN orders o ON o.scope=r.scope AND o.key=r.order_key JOIN digit_fulfillments f ON f.scope=r.scope AND f.order_key=r.order_key LEFT JOIN digit_stock_variants v ON v.scope=r.scope AND v.stock_code=r.stock_code AND (v.base_code IN (SELECT stock_code FROM stock_rules WHERE scope=r.scope AND sales_code=r.sales_code) OR v.base_code IN (SELECT value FROM json_each(CASE WHEN f.fixed_groups='' THEN '[]' ELSE f.fixed_groups END))) WHERE r.scope=? AND o.shop=? AND o.order_id=? AND f.status IN ('auto','manual')").bind(...args),
   d.prepare(`SELECT * FROM order_conflicts WHERE scope=? AND order_key IN (${members}) ORDER BY created_at DESC`).bind(scope,...args),
-  d.prepare(`SELECT order_key,code,kind,quantity,at FROM order_returns WHERE scope=? AND order_key IN (${members})`).bind(scope,...args),
+  d.prepare(`SELECT order_key,code,kind,quantity,at,damaged FROM order_returns WHERE scope=? AND order_key IN (${members})`).bind(scope,...args),
   d.prepare('SELECT * FROM print_jobs WHERE scope=? AND shop=? AND order_id=?').bind(...args),
   d.prepare('SELECT * FROM print_events WHERE scope=? ORDER BY at DESC LIMIT 100').bind(scope),
   d.prepare('SELECT * FROM movements WHERE scope=? ORDER BY at DESC LIMIT 300').bind(scope),
