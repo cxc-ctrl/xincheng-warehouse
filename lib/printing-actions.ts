@@ -123,7 +123,7 @@ export async function appendPrintingAction(b:Record<string,any>,d:D1Database,sco
 }
 export async function appendPrintingImport(d:D1Database,scope:string,o:OrderLine,old:OrderLine|undefined,now:number,rid:string,ss:D1PreparedStatement[],guard:string){
  const j=await d.prepare('SELECT * FROM print_jobs WHERE scope=? AND shop=? AND order_id=?').bind(scope,o.shop,o.order_id).first<PrintJob>();if(!j||!printJobLines(j,[o]).length)return false;
- ss.push(d.prepare(`UPDATE digit_fulfillments SET signature=?,reason=CASE WHEN signature<>? THEN 'ERP备注、规格或数量已变化，请在数码打印重新核对整单实际成本' ELSE reason END,updated_at=? WHERE scope=? AND order_key=? AND status='print' AND ${guard}`).bind(digitSignature(o),digitSignature(o),now,scope,o.key,scope,rid));
+ ss.push(d.prepare(`UPDATE digit_fulfillments SET signature=?,reason=CASE WHEN signature<>? THEN CASE WHEN reason LIKE '数字贴自动转打印：%' THEN '数字贴自动转打印：ERP备注、规格或数量已变化，请重新核对打印成本' ELSE 'ERP备注、规格或数量已变化，请在数码打印重新核对整单实际成本' END ELSE reason END,updated_at=? WHERE scope=? AND order_key=? AND status='print' AND ${guard}`).bind(digitSignature(o),digitSignature(o),now,scope,o.key,scope,rid));
  ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND NOT EXISTS(SELECT 1 FROM print_jobs WHERE scope=? AND shop=? AND order_id=? AND updated_at=?) THEN json('打印任务已更新，请重新导入') ELSE 1 END`).bind(scope,rid,scope,o.shop,o.order_id,j.updated_at));
  if(!old||printLineBasis(old)!==printLineBasis(o)){ss.push(d.prepare(`UPDATE print_jobs SET needs_review=1 WHERE scope=? AND shop=? AND order_id=? AND ${guard}`).bind(scope,o.shop,o.order_id,scope,rid));audit(d,scope,o.shop,o.order_id,'ERP变更',j.accounting_mode==='sku'?'数码打印商品、数量或备注变化，原实际成本保留，请重新核定打印部分':'ERP商品、数量或备注变化，历史整单仍按打印履约，原成本保留但须重新核定',now,rid,ss,guard);}
  return true;
