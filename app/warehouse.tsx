@@ -1,5 +1,5 @@
-import InventoryEntry from './inventory-entry';
 "use client";
+import InventoryEntry from './inventory-entry';
 import {ignoredOrderCode,DEFAULT_IGNORE_RULES,type ImportIgnoreRule} from "../lib/order-scope";
 import ImportIgnoreRules from "./import-ignore-rules";
 import dynamic from "next/dynamic";
