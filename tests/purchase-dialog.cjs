@@ -10,7 +10,7 @@ async function main(){
  assert(mount,'Warehouse purchasing mount must exist');
  const source=`import React,{useState} from 'react';import {createRoot} from 'react-dom/client';import Purchasing from './app/purchasing';import RetainedView from './app/retained-view';
  const ledger=['蓝莓','柠檬','雪梨'].map((name,i)=>({kind:'physical',code:'STOCK-'+i,name,spec:'7x7',unit:'贴',quantity:2000,sales_codes:[],sales_names:[]}));
- function Harness(){const [purchaseTarget,setPurchaseTarget]=useState(undefined),[view,setView]=useState('products');const purchaseFocus=undefined,loading=false,loadFailed=false,importOpen=false,busy=false,error='';const setError=()=>{},setCounting=()=>{};const paperAction=async body=>{window.saves.push(body);return true};return <>{ledger.map(r=><button key={r.code} onClick={()=>setPurchaseTarget(r)}>{r.name}采购</button>)}<button onClick={()=>setView('purchasing')}>采购管理</button>${mount}</>};window.saves=[];createRoot(document.getElementById('root')).render(<Harness/>);`;
+ function Harness(){const [purchaseTarget,setPurchaseTarget]=useState(undefined),[view,setView]=useState('products');const receivingTab="return",purchaseFocus=undefined,loading=false,loadFailed=false,importOpen=false,busy=false,error='';const setError=()=>{},setCounting=()=>{};const paperAction=async body=>{window.saves.push(body);return true};return <>{ledger.map(r=><button key={r.code} onClick={()=>setPurchaseTarget(r)}>{r.name}采购</button>)}<button onClick={()=>setView('purchasing')}>采购管理</button>${mount}</>};window.saves=[];createRoot(document.getElementById('root')).render(<Harness/>);`;
  const result=await build({stdin:{contents:source,resolveDir:root,loader:'tsx'},bundle:true,write:false,loader:{'.css':'empty'},jsx:'automatic',define:{'process.env.NODE_ENV':'"production"'}});
  const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true});
  try{const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));
@@ -29,3 +29,4 @@ async function main(){
  }finally{await browser.close()}
 }
 main().catch(e=>{console.error(e);process.exitCode=1});
+
