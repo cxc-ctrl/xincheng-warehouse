@@ -8,12 +8,13 @@ import './purchasing.css';
 
 async function read(body:Record<string,unknown>,signal?:AbortSignal){const r=await fetch('/api/warehouse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...body,request_id:clientId()}),signal});const data=await r.json() as {error?:string;purchases:PurchaseList;defaults:{supplier:string;unit:string;unit_price:number|null;first:boolean}};if(!r.ok)throw new Error(data.error||'采购资料加载失败');return data;}
 const key=(r:Pick<InventoryRow,'kind'|'code'>)=>JSON.stringify([r.kind,r.code]);
-type Props={focus?:{kind:"physical"|"product";code:string;nonce:number};visible:boolean;rows:InventoryRow[];target:InventoryRow|null|undefined;close:()=>void;open:()=>void;busy:boolean;error:string;onAction:(body:Record<string,unknown>,message:string)=>Promise<boolean>;onCount:(r:InventoryRow)=>void};
-export default function Purchasing({focus,visible,rows,target,close,open,busy,error,onAction,onCount}:Props){
+type Props={receiving?:boolean;focus?:{kind:"physical"|"product";code:string;nonce:number};visible:boolean;rows:InventoryRow[];target:InventoryRow|null|undefined;close:()=>void;open:()=>void;busy:boolean;error:string;onAction:(body:Record<string,unknown>,message:string)=>Promise<boolean>;onCount:(r:InventoryRow)=>void};
+export default function Purchasing({receiving=false,focus,visible,rows,target,close,open,busy,error,onAction,onCount}:Props){
  const [focusTarget,setFocusTarget]=useState<Props["focus"]>();
  useEffect(()=>{if(focus){setFocusTarget(focus);setMonth('');setStatus('pending');setSearch('');setPage(1);}},[focus]);
  const [month,setMonth]=useState(chinaMonth()),[status,setStatus]=useState(''),[search,setSearch]=useState(''),[page,setPage]=useState(1),[version,setVersion]=useState(0),[list,setList]=useState<PurchaseList|null>(null),[readError,setReadError]=useState(''),[loading,setLoading]=useState(false),[confirm,setConfirm]=useState<{purchase:Purchase;action:'purchase_receive'|'purchase_cancel'}|null>(null);
  useEffect(()=>{if(!visible)return;const abort=new AbortController();setLoading(true);setReadError('');void read({action:'purchase_list',month,status,search,page,target_kind:focusTarget?.kind,target_code:focusTarget?.code},abort.signal).then(d=>{if(!abort.signal.aborted)setList(d.purchases)}).catch(e=>{if(!abort.signal.aborted)setReadError(e.message)}).finally(()=>{if(!abort.signal.aborted)setLoading(false)});return()=>abort.abort();},[visible,month,status,search,page,version,rows,focusTarget]);
+ useEffect(()=>{if(receiving){setMonth('');setStatus('pending');setSearch('');setPage(1);setFocusTarget(undefined);}},[receiving]);
  const current=confirm?rows.find(r=>r.kind===confirm.purchase.kind&&r.code===confirm.purchase.code):null;
  const receiptBlocked=confirm?.action==='purchase_receive'&&(!current||current.quantity==null);
  return <>

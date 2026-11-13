@@ -1,0 +1,7 @@
+.receiving-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:12px 24px;padding:22px;border-bottom:1px solid var(--line)}
+.receiving-toolbar .search-field{width:min(100%,540px);max-width:540px;flex:1 1 420px}
+.receiving-toolbar p{font-size:13px;line-height:1.7;margin:0}
+.receiving-empty{padding:32px 20px}
+.receiving-switch{justify-content:flex-start}
+.inventory-alert-count{display:inline-flex;align-items:center;justify-content:center;min-width:23px;padding:1px 6px;margin-left:7px;border-radius:5px;background:#fff0e6;color:#bd5a24;font-size:12px;font-variant-numeric:tabular-nums}
+@media(max-width:600px){.receiving-toolbar{padding:16px}.receiving-toolbar .search-field{flex-basis:100%}.receiving-switch>.period{flex:0 1 auto}}
