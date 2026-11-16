@@ -34,7 +34,7 @@ export default function BusinessAnalysis({shopData=EMPTY_SHOPS,freightData=EMPTY
  const window=useMemo(()=>periodWindow(period,now,from,to),[period,now,from,to]),validWindow=Number.isFinite(window.start)&&Number.isFinite(window.end)&&window.start<window.end;
  const report=useMemo(()=>buildBusinessAnalysis(products,stocks,rules,orders,{analyticsSettings,productLifecycle,inventoryReceipts},now,validWindow?window:{start:now,end:now}),[products,stocks,rules,orders,analyticsSettings,productLifecycle,inventoryReceipts,now,window,validWindow]);
  const productMap=useMemo(()=>new Map(products.map(p=>[p.code,p])),[products]);
- const categories=useMemo(()=>[...new Set(products.map(p=>p.category))].sort(),[products]);
+ const categories=useMemo(()=>[...new Set([...products.map(p=>p.category),...report.stockRows.map(r=>r.category)])].sort(),[products,report]);
  const rows=useMemo(()=>report.rows.filter(r=>(!category||r.product.category===category)&&(!search||[r.product.code,r.product.name,r.product.category,r.meta.series,r.meta.cohort].join(' ').toLowerCase().includes(search.trim().toLowerCase()))),[report,category,search]);
  const visibleCodes=useMemo(()=>new Set(rows.map(r=>r.product.code)),[rows]);
  const filteredSales=useMemo(()=>report.sales.filter(o=>(!category&&!search)||visibleCodes.has(o.code)),[report,category,search,visibleCodes]);

@@ -42,12 +42,12 @@ export function buildBusinessAnalysis(products:Product[],physical:PhysicalStock[
  for(const r of rules){const list=components.get(r.sales_code)??[];list.push(r);components.set(r.sales_code,list);}
  const {sales:qty30,physical:demand}=inventoryDemand(products,rules,orders,now-30*DAY,now+1);
  const ledger=inventoryLedger(products,physical,rules),stockRows:StockAnalysis[]=ledger.map(r=>{
-  const cats=[...new Set(r.sales_codes.map(c=>pmap.get(c)?.category).filter((c):c is string=>!!c))],category=cats.length>1?'跨品类共用':cats[0]??'未分类',policy=settings.categories[category]??DEFAULT_POLICY;
+  const cats=[...new Set(r.sales_codes.map(c=>pmap.get(c)?.category).filter((c):c is string=>!!c))],category=/数字贴|数码贴/.test(r.name)?'贴纸':cats.length>1?'跨品类共用':cats[0]??'未分类',policy=settings.categories[category]??DEFAULT_POLICY;
   const usage=r.kind==='physical'?demand.get(r.code)??0:qty30.get(r.code)??0,cover=r.quantity==null?null:r.quantity<=0?0:usage>0?r.quantity/(usage/30):null,value=r.quantity==null||r.cost==null?null:Math.max(0,r.quantity)*r.cost;
   const holidayDays=policy.holiday?Math.floor((parseDay(policy.holiday)-today)/DAY):null,d=cover==null?null:Math.ceil(cover);
   let health=r.quantity==null?'待盘点':r.quantity<0?'负库存':r.quantity===0?'已缺货':usage===0?(covered(settings,now-30*DAY,now+1)?'30天无销售':'销量待核对'):d!<=policy.urgent?'即将缺货':d!<=policy.low?'库存偏低':d!<=policy.normal?'正常':d!<=policy.high?'库存偏高':'库存积压';
   if(r.quantity!=null&&r.quantity>0&&holidayDays!=null){if(holidayDays<0)health='节后库存';else if(cover!=null&&cover>holidayDays)health='节前可能结余';}
-  return {...r,usage,cover,value,health,category,policy,holidayDays};
+  return {...r,categories:category==='贴纸'&&/数字贴|数码贴/.test(r.name)?['贴纸']:[...new Set([...r.categories,category])],usage,cover,value,health,category,policy,holidayDays};
  });
  const stockMap=new Map(stockRows.map(r=>[r.kind+':'+r.code,r])),receiptMap=new Map(extra.inventoryReceipts.map(r=>[r.kind+':'+r.code,r]));
  const rows:SkuAnalysis[]=products.map(p=>{
