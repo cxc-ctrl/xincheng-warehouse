@@ -12,7 +12,7 @@ export const orders = sqliteTable("orders", {
  scope:text("scope").notNull(),key:text("key").notNull(),orderId:text("order_id").notNull(),shop:text("shop").notNull(),platform:text("platform").notNull(),
  code:text("code").notNull(),title:text("title").notNull(),spec:text("spec").notNull(),quantity:integer("quantity").notNull(),status:text("status").notNull(),orderTime:integer("order_time").notNull(),
  buyerRemark:text("buyer_remark").notNull().default(""),sellerRemark:text("seller_remark").notNull().default(""),remarksAvailable:integer("remarks_available").notNull().default(0),
- shippedAt:integer("shipped_at"),sourceUpdatedAt:integer("source_updated_at"),shippedQty:integer("shipped_qty").notNull().default(0),unitCostSnapshot:real("unit_cost_snapshot"),cutoffAckAt:integer("cutoff_ack_at"),
+ shippedAt:integer("shipped_at"),sourceUpdatedAt:integer("source_updated_at"),shippedQty:integer("shipped_qty").notNull().default(0),unitCostSnapshot:real("unit_cost_snapshot"),manualStockCostCents:integer("manual_stock_cost_cents"),manualStockCostBasis:text("manual_stock_cost_basis").notNull().default(""),manualStockCostNote:text("manual_stock_cost_note").notNull().default(""),manualStockCostAt:integer("manual_stock_cost_at").notNull().default(0),manualStockCostOperator:text("manual_stock_cost_operator").notNull().default(""),cutoffAckAt:integer("cutoff_ack_at"),
  amount:real("amount"),cost:real("cost"),deductedQty:integer("deducted_qty").notNull().default(0),review:integer("review").notNull().default(0),reset:integer("reset").notNull().default(0),batchId:text("batch_id").notNull(),updatedAt:integer("updated_at").notNull(),
 },t=>[primaryKey({columns:[t.scope,t.key]}),index("orders_by_product").on(t.scope,t.code),index("orders_by_date").on(t.scope,t.orderTime)]);
 export const movements=sqliteTable("movements",{
@@ -134,3 +134,5 @@ export const digitRemarkRules=sqliteTable('digit_remark_rules',{scope:text('scop
 export const inventoryEntries=sqliteTable('inventory_entries',{
  scope:text('scope').notNull(),id:text('id').notNull(),type:text('type').notNull(),orderKey:text('order_key').notNull().default(''),reference:text('reference').notNull().default(''),items:text('items').notNull(),note:text('note').notNull(),operator:text('operator').notNull(),receivedAt:integer('received_at').notNull(),createdAt:integer('created_at').notNull(),
 },t=>[primaryKey({columns:[t.scope,t.id]}),index('inventory_entries_recent').on(t.scope,t.createdAt)]);
+
+export const stockCostEvents=sqliteTable("stock_cost_events",{scope:text("scope").notNull(),id:text("id").notNull(),orderKey:text("order_key").notNull(),previousCents:integer("previous_cents"),costCents:integer("cost_cents").notNull(),basis:text("basis").notNull(),note:text("note").notNull(),operator:text("operator").notNull(),at:integer("at").notNull()},t=>[primaryKey({columns:[t.scope,t.id]})]);

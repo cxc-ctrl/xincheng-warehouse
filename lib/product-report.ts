@@ -1,9 +1,11 @@
+import {manualStockCost} from './manual-stock-cost';
 import {inventoryLedger,isValid,isPrintOnly,recipeStock,type InventoryRow,type OrderLine,type PhysicalStock,type Product,type StockRule} from './model';
 import {inventoryDemand} from './inventory-demand';
 
 const DAY=86400000;
 function orderCost(o:OrderLine,p:Product|undefined){
  if(o.fulfillment_mode==="print")return {cost:o.printing_allocated_cost??null,estimated:true};
+ const manual=manualStockCost(o);if(manual!==undefined)return {cost:manual,estimated:false};
  const unit=o.unit_cost_snapshot??p?.cost;
  return {cost:unit!=null?unit*o.quantity:o.cost,estimated:unit!=null};
 }

@@ -10,7 +10,7 @@ type Movement={id:string;code:string;kind?:string;unit?:string;type:string;delta
 type Route={order_key:string;stock_code:string;per_unit:number;quantity:number;allocated_qty:number;color:string};
 export type OrderRefresh={keys:string[];shop:string;order_id:string;products:Product[];physical:PhysicalStock[];orders:OrderLine[];orderStocks:OrderStock[];digitFulfillments:DigitFulfillment[];digitOrderRules:Route[];conflicts:OrderConflict[];returns:OrderReturn[];printJobs:PrintJob[];printEvents:PrintEvent[];movements:Movement[]};
 type State=Omit<OrderRefresh,'keys'|'shop'|'order_id'|'digitOrderRules'>&{digitOrderRules?:Route[]};
-export const ORDER_REFRESH_ACTIONS=new Set(['digit_fulfillment','digit_recheck','digit_print','print_transfer','print_cost','order_review']);
+export const ORDER_REFRESH_ACTIONS=new Set(['manual_stock_cost','digit_fulfillment','digit_recheck','digit_print','print_transfer','print_cost','order_review']);
 
 // Return a complete, scoped replacement for this order group, including old
 // colour deductions that were restored. The unrelated ERP history stays local.

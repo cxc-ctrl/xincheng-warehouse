@@ -1,3 +1,4 @@
+import {manualStockCost} from './manual-stock-cost';
 import {isValid,type OrderLine} from './model';
 
 export type FreightBill={tracking:string;month:string;carrier:string;fee_cents:number;raw_fee?:string;filename:string;batch_id:string;updated_at:number};
@@ -52,7 +53,7 @@ export function buildFreightAnalysis(orders:OrderLine[],data:FreightData,returnK
   let goods:number|null=0;
   const printed=lines.filter(o=>o.fulfillment_mode==='print'),stock=lines.filter(o=>o.fulfillment_mode!=='print');
   if(printed.length){goods=unique(printed.map(o=>o.printing_cost),'数码打印成本');if(printed.some(o=>o.printing_status&&o.printing_status!=='done'))reasons.push('打印商品尚未确认发货或状态需核对');if(printed.some(o=>o.printing_needs_review)){reasons.push('打印规格变更，成本需复核');goods=null;}if(goods==null)reasons.push('打印成本待录入');}
-  for(const o of stock){const n=o.unit_cost_snapshot==null?o.cost:o.unit_cost_snapshot*(o.shipped_qty||o.quantity);if(n==null){goods=null;reasons.push('缺货品成本');break;}if(goods!=null)goods+=Math.round(n*100);}
+  for(const o of stock){const manual=manualStockCost(o);if(manual===null)reasons.push("现货人工成本待复核");const n=manual!==undefined?manual:o.unit_cost_snapshot==null?o.cost:o.unit_cost_snapshot*(o.shipped_qty||o.quantity);if(n==null){goods=null;reasons.push('缺货品成本');break;}if(goods!=null)goods+=Math.round(n*100);}
   if(!tracking.length)reasons.push('缺运单号');else if(matched.length<tracking.length)reasons.push('快递账单待到齐');
   if(months.length>1)reasons.push('同一订单包含跨月账单');
   const freight=tracking.length&&matched.length===tracking.length?freightAlloc.get(key)??0:null;
