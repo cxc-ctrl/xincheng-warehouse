@@ -1,0 +1,14 @@
+const {assert,load,root}=require('./isolated-harness.cjs'),path=require('node:path');
+const {filterSettlements,scopeProfit}=load(path.join(root,'lib/shop-report-filters.ts'));
+const row=(kind,shop,at,month='2026-10')=>({policy:kind?{kind,team:'历史店铺名称'}:null,base:{month,shop,order_id:shop,tracking:[],lines:[{platform:'TB',shop,code:'SKU',quantity:1,shipped_at:at,order_time:at}],profit:100},shopProfit:80,supplierProfit:20});
+const rows=[row('own','A',Date.parse('2026-11-01T00:00:00+08:00')),row('supply','B',Date.parse('2026-11-01T23:59:59+08:00')),row(null,'C',Date.parse('2026-11-02T00:00:00+08:00'))];
+const f={scope:'company',period:'range',month:'2026-10',start:'2026-11-01',end:'2026-11-01',shop:'',search:''};
+assert.equal(filterSettlements(rows,f).length,2);
+assert.equal(filterSettlements(rows,{...f,scope:'own'}).length,1);
+assert.equal(filterSettlements(rows,{...f,scope:'supply'}).length,1);
+assert.equal(filterSettlements(rows,{...f,shop:JSON.stringify(['TB','B'])})[0].base.shop,'B');
+assert.equal(filterSettlements(rows,{...f,start:'2026-11-03'}).length,0);
+assert.equal(filterSettlements(rows,{...f,period:'month'}).length,3);
+assert.equal(filterSettlements(rows,{...f,period:'all'}).length,3);
+assert.equal(scopeProfit(rows[1],'supply'),20);assert.equal(scopeProfit(rows[0],'own'),80);assert.equal(scopeProfit(rows[0],'company'),100);
+console.log('PASS fixed scopes, unassigned isolation, single shop, inclusive China date boundaries, invalid ranges, legacy month and all-time filtering');
