@@ -1,4 +1,5 @@
 "use client";
+import {unpackWarehouse} from '../lib/warehouse-transport';
 import InventoryEntry from './inventory-entry';
 import {ignoredOrderCode,DEFAULT_IGNORE_RULES,type ImportIgnoreRule} from "../lib/order-scope";
 import ImportIgnoreRules from "./import-ignore-rules";
@@ -145,7 +146,7 @@ export default function Warehouse(){
   const existing=inFlight.current.get(target);if(existing)return existing;
   const ticket=cache.begin(target);
   const task=(async()=>{
-   try{const r=await fetch('/api/warehouse?view='+target,{cache:'no-store'}),d=await r.json() as Data & {dashboard?:DashboardSummary;error?:string};if(!r.ok)throw new Error(d.error||'加载失败');
+   try{const r=await fetch('/api/warehouse?view='+target+'&transport=compact',{cache:'no-store'}),d=unpackWarehouse(await r.json()) as Data & {dashboard?:DashboardSummary;error?:string};if(!r.ok)throw new Error(d.error||'加载失败');
     if(target!=='all'&&dirtyViews.current.has(target))return;
     const knownAlerts=cache.get('stockAlerts')?.value.data.stockAlerts;
     if(d.dashboard?.stockAlerts&&knownAlerts&&knownAlerts.asOf>d.dashboard.stockAlerts.asOf)d.dashboard={...d.dashboard,alerts:knownAlerts.rows.length,stockAlerts:knownAlerts};
