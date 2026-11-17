@@ -61,7 +61,7 @@ export function dashboardSummary(c:{products:Product[];physical:PhysicalStock[];
 }
 export async function readFastWarehouseView(d:D1Database,scope:string,user:string,view:WarehouseView,key?:string){
  if(view==='dashboard'||view==='stockAlerts'){
-  const c=await catalog(d,scope,false),s=await stockOrders(d,scope),shops=await readShopData(d,scope);
+  const c=await catalog(d,scope,false),s=await stockOrders(d,scope),shops=await readShopData(d,scope,0,false);
   const purchases=(await d.prepare("SELECT * FROM purchase_orders WHERE scope=? AND status='pending'").bind(scope).all<Purchase>()).results;
   const policy={...await readAlertPolicy(d,scope),...await digitConfig(d,scope)};const context={...policy,variants:policy.digitVariants as DigitVariant[],conditions:policy.digitConditions,remarkRules:policy.digitRemarkRules};
   const common={user,shopPending:shops.shopPending,shopHeldTotal:shops.shopHeldTotal};
@@ -69,11 +69,11 @@ export async function readFastWarehouseView(d:D1Database,scope:string,user:strin
   return {...common,...c,...await readCostSettings(d,scope),stockAlerts:buildStockAlerts(c.products,c.physical,c.rules,s.orders,purchases,Date.now(),context)};
  }
  if(view==='ignoreRules')return {user};
- if(view==='shops')return {user,...await readShopData(d,scope)};
+ if(view==='shops')return {user,...await readShopData(d,scope,0,false)};
  if(['products','paper','purchasing','digitRules','history','inventoryExport','order'].includes(view)){
   const c=await catalog(d,scope);if(view==='inventoryExport')return c;
   const settings=await d.prepare('SELECT import_test_mode FROM warehouse_settings WHERE scope=?').bind(scope).first<{import_test_mode:number}>();
-  const shops=await readShopData(d,scope);
+  const shops=await readShopData(d,scope,0,false);
   const result:Record<string,unknown>={user,...c,...await readCostSettings(d,scope),importTestMode:settings?.import_test_mode===1,shopPending:shops.shopPending,shopHeldTotal:shops.shopHeldTotal};
   if(view==='products')Object.assign(result,await stockOrders(d,scope),await digitConfig(d,scope));
   if(view==='digitRules'||view==='order')Object.assign(result,await digitConfig(d,scope),await readNamedPrintRules(d,scope));
@@ -88,7 +88,16 @@ export async function readFastWarehouseView(d:D1Database,scope:string,user:strin
 export function projectWarehouseView(data:Record<string,any>,view:WarehouseView){
  if(view==='all')return data;
  const out={...data};
- if(view!=='printing')out.printJobs=data.printJobs.map((j:any)=>{const {estimate_snapshot,...rest}=j;return rest;});
+ // Resolved order routes are already embedded in orders.stock_items. Full exports
+ // and scoped edit responses retain the raw rule rows.
+ delete out.digitOrderRules;
+ if(view==='analysis')for(const key of ['digitFulfillments','digitVariants','orderStocks','printJobs','printEvents','printCatalog','printRules','printRuleLinks','printRuleMatches','movements','batches'])delete out[key];
+ if(view==='import'){
+  out.products=data.products.map((p:Product)=>({...p,images:[]}));
+  for(const key of ['printJobs','printEvents','printCatalog','printRules','printRuleLinks','printRuleMatches','movements','batches'])delete out[key];
+  out.digitFulfillments=data.digitFulfillments.map(({signature,fixed_groups,...rest}:Record<string,unknown>)=>rest);
+ }
+ if(view!=='printing'&&view!=='analysis'&&view!=='import')out.printJobs=data.printJobs.map((j:any)=>{const {estimate_snapshot,...rest}=j;return rest;});
  if(view!=='analysis'&&view!=='freightCheck'){delete out.freightBills;delete out.freightImports;delete out.freightPeriods;delete out.shopAssignments;delete out.productLifecycle;delete out.inventoryReceipts;}
  if(view==='freightCheck'){for(const key of ['printJobs','printEvents','digitOrderRules','digitFulfillments','orderStocks','printRuleMatches'])delete out[key];}
  return out;

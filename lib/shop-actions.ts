@@ -5,12 +5,12 @@ import {appendAutoPrintAccounting} from './print-accounting';
 import {readOrderRefresh} from './order-refresh';
 import type {ShopData,Shop,ShopVersion,ShopAssignment,ShopPending,ShopPolicy} from './shops';
 const text=(v:unknown,label:string,required=true)=>{if(typeof v!=='string'||v.length>160||/[\r\n]/.test(v)||(required&&!v.trim()))throw new Error('请填写有效的'+label);return v.trim();};
-export async function readShopData(d:D1Database,scope:string,page=0):Promise<ShopData>{
+export async function readShopData(d:D1Database,scope:string,page=0,includeAssignments=true):Promise<ShopData>{
  page=Number.isSafeInteger(page)&&page>=0?page:0;
  const r=await d.batch([
   d.prepare('SELECT id,platform,code,name,team,kind,enabled,updated_at FROM shop_configs WHERE scope=? ORDER BY team,name,code').bind(scope),
   d.prepare('SELECT id,shop_id,effective_at,config,created_at FROM shop_pricing_versions WHERE scope=? ORDER BY effective_at,created_at').bind(scope),
-  d.prepare('SELECT platform,shop,order_id,version_id,basis_at FROM shop_order_pricing WHERE scope=?').bind(scope),
+  d.prepare('SELECT platform,shop,order_id,version_id,basis_at FROM shop_order_pricing WHERE scope=? AND ?=1').bind(scope,includeAssignments?1:0),
   d.prepare(`SELECT o.platform,o.shop,COUNT(DISTINCT o.order_id) AS orders,COUNT(*) AS lines,MIN(o.order_time) AS first_at,CASE WHEN s.id IS NULL THEN '店铺尚未配置' WHEN s.enabled=0 THEN '店铺已停用' ELSE '缺覆盖发货日期的结算规则' END AS reason FROM orders o LEFT JOIN shop_configs s ON s.scope=o.scope AND s.platform=o.platform AND s.code=o.shop LEFT JOIN shop_order_pricing a ON a.scope=o.scope AND a.platform=o.platform AND a.shop=o.shop AND a.order_id=o.order_id WHERE o.scope=? AND (s.id IS NULL OR s.enabled=0 OR (a.version_id IS NULL AND (o.status IN('已发货','已完成') OR o.shipped_qty>0))) GROUP BY o.platform,o.shop,reason ORDER BY orders DESC`).bind(scope),
   d.prepare("SELECT id,payload,filename,updated_at FROM shop_held_orders WHERE scope=? AND status='pending' ORDER BY updated_at,id LIMIT 40 OFFSET ?").bind(scope,page*40),
   d.prepare("SELECT COUNT(*) AS n FROM shop_held_orders WHERE scope=? AND status='pending'").bind(scope),
