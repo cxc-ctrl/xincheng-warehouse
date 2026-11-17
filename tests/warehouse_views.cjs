@@ -14,7 +14,7 @@ function baseline(d,now){const smap=new Map(d.physical.map(s=>[s.code,s])),ps=d.
  sql.prepare("UPDATE digit_fulfillment_rules SET allocated_qty=1 WHERE scope='isolated' AND order_key IN(SELECT key FROM orders WHERE order_id='stock')").run();
  let full=await data();const lines=full.orders.filter(o=>o.order_id==='print');await send({action:'print_transfer',shop:'isolated',order_id:'print',basis:printBasis(lines),updated_at:0,note:'打印',quick:true});
  full=await data();const snapshot=JSON.stringify(full),dashboard=await get('dashboard'),lean=await get('products'),now=dashboard.dashboard.asOf;
- const actual={...dashboard.dashboard};delete actual.asOf;delete actual.movements;assert.deepEqual(actual,baseline(full,now));
+ const expected=baseline(full,now);delete expected.alerts;expected.top=expected.top.filter(r=>r.code!=='SALE');const actual=Object.fromEntries(Object.keys(expected).map(k=>[k,dashboard.dashboard[k]]));assert.deepEqual(actual,expected);assert(dashboard.dashboard.stockAlerts.rows.some(r=>r.code==='BOARD'&&r.quantity===98&&r.fixedMinimum===200),'Dashboard uses the configured sheet minimum, not the obsolete sales forecast');assert(!dashboard.dashboard.top.some(r=>r.code==='SALE'),'Digit stickers remain outside hot SKU ranking');
  assert(!dashboard.products&&!dashboard.orders&&!dashboard.printJobs);assert(Buffer.byteLength(JSON.stringify(dashboard))<15000);
  for(const o of lean.orders){const old=full.orders.find(x=>x.key===o.key);assert.equal(o.fulfillment_mode,old.fulfillment_mode||'stock');assert.deepEqual(o.stock_items,old.stock_items);}
  assert(!lean.printJobs&&!lean.freightBills&&!lean.shopAssignments);assert.equal(lean.products.length,full.products.length);
