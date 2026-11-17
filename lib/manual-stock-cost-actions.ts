@@ -7,7 +7,7 @@ export async function appendManualStockCost(b:Record<string,any>,d:D1Database,sc
  const o=await d.prepare('SELECT * FROM orders WHERE scope=? AND key=?').bind(scope,b.key).first<OrderLine&{updated_at:number}>();
  if(!o)throw Error('订单不存在，请刷新');
  const value=cents(b.cost,'本条商品总成本'),note=typeof b.note==='string'?b.note.trim():'';
- if(!note||note.length>1000)throw Error('请填写成本说明（最多1000字）');
+ if(note.length>1000)throw Error('成本说明最多1000字');
  if(value===0&&b.confirm_zero!==true)throw Error('请确认本条商品成本确实为0元');
  if(b.basis!==stockCostBasis(o)||(b.cost_at??0)!==(o.manual_stock_cost_at??0))throw Error('订单或人工成本已更新，请刷新后重新核对');
  const blocked=`EXISTS(SELECT 1 FROM digit_fulfillments f WHERE f.scope=orders.scope AND f.order_key=orders.key AND f.status='print') OR EXISTS(SELECT 1 FROM print_jobs j WHERE j.scope=orders.scope AND j.shop=orders.shop AND j.order_id=orders.order_id AND (j.accounting_mode!='sku' OR EXISTS(SELECT 1 FROM json_each(j.member_keys) WHERE value=orders.key))) OR EXISTS(SELECT 1 FROM order_conflicts c WHERE c.scope=orders.scope AND c.order_key=orders.key) OR EXISTS(SELECT 1 FROM import_conflict_groups c WHERE c.scope=orders.scope AND c.order_key=orders.key AND c.status='pending')`;

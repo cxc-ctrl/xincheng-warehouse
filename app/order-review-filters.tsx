@@ -2,7 +2,7 @@ import {useEffect,useRef,useState} from 'react';
 import {ChevronDown,Check} from 'lucide-react';
 import {MAIN_ORDER_FILTERS,EXTRA_ORDER_FILTERS,type OrderFilter} from '../lib/order-review-filters';
 
-const reasons=[...MAIN_ORDER_FILTERS,...EXTRA_ORDER_FILTERS].filter(([id])=>!['all','valid','pending','print','unmatched'].includes(id));
+const reasons=[...MAIN_ORDER_FILTERS,...EXTRA_ORDER_FILTERS].filter(([id])=>!['all','valid','pending','print','unmatched','cost'].includes(id));
 export default function OrderReviewFilters({selected,counts,onChange}:{selected:OrderFilter[];counts:Record<OrderFilter,number>;onChange:(next:OrderFilter[])=>void}){
  const [open,setOpen]=useState(false),root=useRef<HTMLDivElement>(null),trigger=useRef<HTMLButtonElement>(null);
  const active=selected.length===1?selected[0]:null;
@@ -24,7 +24,7 @@ export default function OrderReviewFilters({selected,counts,onChange}:{selected:
   {open&&<div className="order-reason-dropdown" id="order-reason-dropdown" role="group" aria-label="选择订单分类">
    {option(['pending','全部待核对'])}
    <div className="order-reason-group">{reasons.filter(([id])=>counts[id]>0||selected.includes(id)||['shortage','missing','unknown','spec'].includes(id)).map(option)}</div>
-   <div className="order-reason-group"><small>其他订单</small>{option(['unmatched','未匹配商品'])}{option(['print','已安排打印'])}</div>
+   <div className="order-reason-group"><small>其他订单</small>{option(['unmatched','未匹配商品'])}{option(['print','已安排打印'])}{option(['cost','已人工核算'])}</div>
   </div>}
  </div>;
 }

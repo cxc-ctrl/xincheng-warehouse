@@ -1,7 +1,8 @@
 import {isValid,type OrderLine} from './model';
 import type {DigitIssue} from './order-issues';
+import {manualStockCost} from './manual-stock-cost';
 export const MAIN_ORDER_FILTERS=[['all','全部订单'],['print','已安排打印'],['shortage','缺货'],['missing','未建立对应库存'],['unknown','备注无法识别'],['spec','规格 / 数量需核对']] as const;
-export const EXTRA_ORDER_FILTERS=[['unmatched','未匹配商品'],['count','待盘点'],['audit','已扣记录待复核'],['suggest','建议整单打印'],['other','其他待核对'],['pending','全部待核对'],['valid','有效订单']] as const;
+export const EXTRA_ORDER_FILTERS=[['unmatched','未匹配商品'],['cost','已人工核算'],['count','待盘点'],['audit','已扣记录待复核'],['suggest','建议整单打印'],['other','其他待核对'],['pending','全部待核对'],['valid','有效订单']] as const;
 export type OrderFilter=typeof MAIN_ORDER_FILTERS[number][0]|typeof EXTRA_ORDER_FILTERS[number][0];
 export const DEFAULT_ORDER_FILTERS:OrderFilter[]=['pending'];
 const issueFilter:Record<DigitIssue['label'],OrderFilter>={'缺货':'shortage','未建对应库存':'missing','备注无法识别':'unknown','规格 / 数量需核对':'spec','待盘点':'count','已扣记录待复核':'audit','建议整单打印':'suggest','发货方式需核对':'other'};
@@ -9,13 +10,14 @@ export function toggleOrderFilter(selected:OrderFilter[],key:OrderFilter):OrderF
  if(key==='all')return selected.includes('all')?[]:['all'];
  const next=selected.filter(x=>x!=='all');return next.includes(key)?next.filter(x=>x!==key):[...next,key];
 }
-export function isUnmatchedOrder(order:Pick<OrderLine,'status'|'code'|'fulfillment_mode'>,known:ReadonlyMap<string,unknown>){return isValid(order.status)&&order.fulfillment_mode!=='print'&&!known.has(order.code);}
+export function isUnmatchedOrder(order:OrderLine,known:ReadonlyMap<string,unknown>){return isValid(order.status)&&order.fulfillment_mode!=='print'&&!known.has(order.code)&&manualStockCost(order)==null;}
 export function indexOrderFilters(orders:OrderLine[],choices:Map<string,{status:string}>,issues:Map<string,DigitIssue>,known:ReadonlyMap<string,unknown>,reviews:Set<string>){
  const seen=new Set<string>(),rows:{order:OrderLine;filters:Set<OrderFilter>}[]=[];
  const counts=Object.fromEntries([...MAIN_ORDER_FILTERS,...EXTRA_ORDER_FILTERS].map(([id])=>[id,0])) as Record<OrderFilter,number>;
  for(const order of orders){if(seen.has(order.key))continue;seen.add(order.key);const filters=new Set<OrderFilter>(['all']);
   if(isValid(order.status))filters.add('valid');
   if(choices.get(order.key)?.status==='print')filters.add('print');
+  if(order.fulfillment_mode!=='print'&&manualStockCost(order)!=null)filters.add('cost');
   const issue=issues.get(order.key);if(issue)filters.add(issueFilter[issue.label]);
   if(isUnmatchedOrder(order,known))filters.add('unmatched');
   if(reviews.has(order.key)){filters.add('pending');if(!issue&&!filters.has('unmatched'))filters.add('other');}
