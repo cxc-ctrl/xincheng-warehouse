@@ -1,3 +1,4 @@
+import {syncPhysicalCosts} from '../../../lib/product-sync-costs';
 import {packWarehouse} from '../../../lib/warehouse-transport';
 import {appendInventoryEntry,readInventoryEntries} from '../../../lib/inventory-entry-actions';
 import {appendStockLoss,readStockLosses} from '../../../lib/stock-loss-actions';
@@ -74,7 +75,7 @@ async function refreshAutomaticCosts(d:D1Database,scope:string,b:Record<string,a
 export async function POST(req:Request):Promise<Response>{try{
  const sync=trustedSync(req),user=sync?sessionUser():await getChatGPTUser();if(!user)return json({error:"请先登录"},401);const origin=req.headers.get("origin");if(origin&&origin!==new URL(req.url).origin&&origin!==process.env.WAREHOUSE_PUBLIC_URL)return json({error:"来源不允许"},403);
  const raw=await req.text();if(raw.length>1000000)return json({error:"请求过大，请分批导入"},413);const b=JSON.parse(raw),scope=user.userId,now=Date.now();let d=db();const rid=str(b.request_id,200);if(!rid)throw new Error("缺少操作编号");
- if(sync&&!['product_center_sync_preview','product_center_sync','product_center_costs'].includes(b.action))return json({error:'同步凭证仅可用于产品资料同步'},403);
+ if(sync&&!['product_center_sync_preview','product_center_sync','product_center_costs','product_center_sync_costs'].includes(b.action))return json({error:'同步凭证仅可用于产品资料同步'},403);
  if(b.action==='digit_rules_preview')return json({ok:true,digitImportPreview:await previewDigitRuleImport(d,scope,b.file)});
  if(b.action==='import_ignore_list')return json({ok:true,...await importIgnorePage(d,scope)});
  if(b.action==='import_ignore_preview')return json({ok:true,preview:await previewImportIgnore(d,scope,b)});
@@ -86,6 +87,7 @@ export async function POST(req:Request):Promise<Response>{try{
  if(b.action==='purchase_list')return json({ok:true,purchases:await readPurchases(d,scope,b)});
  if(b.action==='purchase_defaults')return json({ok:true,defaults:await readPurchaseDefaults(d,scope,b)});
  if(b.action==='product_center_costs')return json({ok:true,stockCosts:await readProductCenterCosts(d,scope,b)});
+ if(b.action==='product_center_sync_costs')return json({ok:true,physicalCosts:await syncPhysicalCosts(d,scope,b,now)});
  if(b.action==='product_center_sync_preview')return json({ok:true,syncPreview:await previewProductSync(d,scope,b)});
  if(b.action==='shop_page')return json({ok:true,shopData:await readShopData(d,scope,b.page)});
  if(b.action==='print_auto_cost_refresh'){await settleAutomaticPrintCosts(d,scope);return json({ok:true});}
