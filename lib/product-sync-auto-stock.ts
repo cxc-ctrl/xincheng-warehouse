@@ -1,11 +1,10 @@
 // Ordinary stock may be inferred from complete catalog metadata. Explicit
 // warehouse recipes always win; balances are never part of a catalog sync.
+import {stockText as norm,stockSize,stockIdentity} from './stock-identity';
 type Obj=Record<string,any>;
-const norm=(s:string)=>s.toLowerCase().replace(/厘米|cm/g,'').replace(/[×*]/g,'x').replace(/\s/g,'');
 const baseName=(s:string)=>s.replace(/[-－\s]*\d+\s*(贴|枚|张|个|件)$/, '').replace(/[-－\s]+$/,'');
-const baseCode=(v:Obj)=>v.sku.replace(new RegExp('[-_]'+v.pack_qty+'$'),'');
-const identity=(v:Obj)=>JSON.stringify([v.product_id,v.inventory_group||baseCode(v)]);
-const compatible=(a:Obj,b:Obj)=>norm(a.size||'')===norm(b.size||'')&&norm(a.material||'')===norm(b.material||'')&&a.pack_unit===b.pack_unit;
+const identity=(v:Obj)=>stockIdentity(v as Parameters<typeof stockIdentity>[0]);
+const compatible=(a:Obj,b:Obj)=>stockSize(a.size||'')===stockSize(b.size||'')&&norm(a.material||'')===norm(b.material||'')&&a.pack_unit===b.pack_unit;
 const ordinary=(v:Obj)=>v.supply_mode==='现货'&&['','待关联'].includes(v.inventory_mode||'')&&!/数字贴|数码贴|任选|自选|混选|随机|混合|混装|组合|套装/.test((v.category||'')+' '+v.name)&&!/SZT-/i.test(v.sku);
 
 export async function prepareAutoStocks(d:D1Database,scope:string,body:Obj){
@@ -37,10 +36,9 @@ export async function prepareAutoStocks(d:D1Database,scope:string,body:Obj){
   const unlinked=members.filter((v:Obj)=>!rules.some(r=>r.sales_code===v.sku));
   if(!unlinked.length)continue;
   const first=members[0];let reason='';
-  const all=[...catalog.values()].filter(v=>v.supply_mode==='现货'&&(identity(v)===key||(!v.inventory_group||!first.inventory_group)&&v.product_id===first.product_id&&baseCode(v)===baseCode(first)));
+  const all=[...catalog.values()].filter(v=>v.supply_mode==='现货'&&identity(v)===key);
   if(all.some(v=>!v.size||!v.material))reason='尺寸或材质未填写';
   else if(all.some(v=>!compatible(v,first)))reason='同款尺寸、材质或库存单位不一致';
-  else if(!first.inventory_group&&all.some(v=>baseName(v.name)!==baseName(first.name)))reason='同编码前缀的款式名称不一致';
   else if(all.some(v=>/任选|自选|混选|随机|混合|混装|组合|套装|数字贴/.test(v.name)))reason='组合款或数字贴需使用专用库存规则';
   else if(all.some(v=>body.warehouse_config.links.some((l:Obj)=>l.sku===v.sku)))reason='同款已有前端指定关联，请核对新增包装';
   else if(unlinked.some((v:Obj)=>{const p=products.find(p=>p.code===v.sku);return p&&(p.stock_mode==='direct'||p.quantity!=null||p.count_at!=null||p.tracking_enabled===0);}))reason='已有独立库存或停用设置，保留仓库记录';
@@ -49,7 +47,9 @@ export async function prepareAutoStocks(d:D1Database,scope:string,body:Obj){
   if(!reason&&(targets.length>1||related.some(r=>r.per_unit!==catalog.get(r.sales_code)?.pack_qty)))reason='同款已有特殊关联，请人工核对新增包装';
   const code=targets[0]||stockCodes.get(key)!;
   const existing=stocks.find(s=>s.code===code);
-  if(!reason&&existing&&(existing.archived||existing.unit!==first.pack_unit||norm(existing.spec||'')!==norm(first.size)))reason='已有实物单位、尺寸或归档状态冲突';
+  const stockSpec=existing?.spec||'';
+  const legacySpec=/^同款包装共用[；;]\s*一个库存单位代表\s*1/.test(stockSpec);
+  if(!reason&&existing&&(existing.archived||existing.unit!==first.pack_unit||!legacySpec&&stockSize(stockSpec)!==stockSize(first.size)))reason='已有实物单位、尺寸或归档状态冲突';
   if(!reason&&targets.length&&!existing)reason='关联实物不存在';
   if(!reason&&existing&&!targets.length)reason='已有同编码实物但缺少关联，请人工核对';
   if(reason){issues.push({codes:unlinked.map((v:Obj)=>v.sku),reason});continue;}
