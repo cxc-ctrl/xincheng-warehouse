@@ -1,0 +1,27 @@
+const {assert,sql,send,imported,line,data,load,root}=require('./isolated-harness.cjs');
+const {unpaidImportKind}=load(root+'/lib/unpaid-order-import.ts');
+(async()=>{
+ const at=Date.now()-100000,o={...line('UNPAID','SKU',1,'未付款',at),amount:24};
+ await imported([o]);assert.equal(sql.prepare('select count(*) n from orders').get().n,0,'New unpaid orders are skipped');
+ assert.equal(sql.prepare('select count(*) n from order_conflicts').get().n,0);
+ await imported([{...o,status:'已发货',shipped_at:at+1000}]);assert.equal(sql.prepare('select shipped_qty from orders where key=?').get(o.key).shipped_qty,1,'The same order imports normally after payment and shipment');
+ await imported([{...o,status:'未付款',amount:0}]);assert.equal(sql.prepare('select status from orders where key=?').get(o.key).status,'已发货');assert.equal(sql.prepare('select count(*) n from order_conflicts where order_key=?').get(o.key).n,1,'Unpaid updates must not erase shipped history');
+ const legacy={...line('LEGACY','SKU',1,'未付款',at),amount:9.5};
+ sql.prepare(`insert into orders(scope,key,order_id,shop,platform,code,title,spec,quantity,status,order_time,amount,cost,deducted_qty,review,reset,batch_id,updated_at,shipped_qty) values('isolated',?,?,?,?,?,?,?,?,?,?,?,?,0,0,0,'legacy',?,0)`).run(legacy.key,legacy.order_id,legacy.shop,legacy.platform,legacy.code,legacy.title,legacy.spec,legacy.quantity,legacy.status,legacy.order_time,legacy.amount,null,at);
+ const fingerprint=load(root+'/lib/order-policy.ts').orderFingerprint(sql.prepare('select * from orders where key=?').get(legacy.key));
+ const cancelled={...legacy,status:'已取消',amount:0};
+ sql.prepare(`insert into order_conflicts(scope,order_key,payload,reason,fingerprint,created_at) values('isolated',?,?, 'old false alarm',?,?)`).run(legacy.key,JSON.stringify(cancelled),fingerprint,at);
+ await imported([cancelled]);assert.equal(sql.prepare('select status from orders where key=?').get(legacy.key).status,'已取消');assert.equal(sql.prepare('select count(*) n from order_conflicts where order_key=?').get(legacy.key).n,0,'Unshipped unpaid cancellations clear old false alarms');
+ assert.equal(sql.prepare('select deducted_qty from orders where key=?').get(legacy.key).deducted_qty,0);
+ sql.prepare(`insert into product_supply_profiles(scope,code,source_product,source_revision,config,updated_at) values('isolated','SKU','synthetic',1,?,?)`).run(JSON.stringify({variant:{supply_mode:'打印定制'}}),at);
+ await imported([cancelled]);assert.equal(sql.prepare("select count(*) n from print_jobs where order_id='LEGACY'").get().n,0,'Cancelled unpaid print products do not enter printing accounting');
+ assert.equal(unpaidImportKind({...legacy,shipped_qty:1},cancelled,false),null);
+ assert.equal(unpaidImportKind({...legacy,manual_stock_cost_cents:0},cancelled,false),null);
+ assert.equal(unpaidImportKind(legacy,cancelled,true),null,'Even zero-current-quantity historical records block automatic resolution');
+ assert.equal(unpaidImportKind(legacy,{...cancelled,quantity:2},false),null);
+ assert.equal(unpaidImportKind(legacy,{...cancelled,shipped_at:at+1000},false),null);
+ const gline={...line('STAGED','SKU',1,'待付款',at)},g={key:gline.key,shop:gline.shop,order_id:gline.order_id,code:gline.code,reason:'same item amount difference',rows:[{sheet:'Sheet1',row:2,values:{},line:gline},{sheet:'Sheet1',row:3,values:{},line:{...gline,amount:11}}]};
+ await send({action:'import_conflict_stage',filename:'unpaid.xlsx',group:g});assert.equal(sql.prepare('select count(*) n from import_conflict_groups').get().n,0,'All-unpaid duplicate rows do not enter conflict staging');
+ assert.equal(sql.prepare('pragma integrity_check').get().integrity_check,'ok');
+ console.log('PASS skip unpaid, later shipment, shipped-history protection, legacy cancellation cleanup, manual-cost/history/quantity guards and unpaid conflict staging');
+})().catch(e=>{console.error(e);process.exitCode=1});

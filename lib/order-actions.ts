@@ -8,6 +8,7 @@ import {appendDigitImport} from './digit-color-actions';
 import {isValid,type OrderLine} from './model';
 import {importDecision,orderFingerprint,type OrderConflict} from './order-policy';
 import {MAX_RECIPE_STOCKS} from './recipe-limits';
+import {isUnpaidWithoutExecution,unpaidImportKind,unpaidHistorySQL,unpaidHistoryArgs} from './unpaid-order-import';
 type Validators={str:(v:unknown,max?:number)=>string;qty:(v:unknown,allowZero?:boolean)=>number;cost:(v:unknown)=>number|null;timestamp:(v:unknown)=>number};
 const costSql=`SELECT COALESCE(p.cost,CASE WHEN p.stock_mode='recipe' AND EXISTS(SELECT 1 FROM stock_rules WHERE scope=p.scope AND sales_code=p.code) AND NOT EXISTS(SELECT 1 FROM stock_rules r LEFT JOIN physical_stocks s ON s.scope=r.scope AND s.code=r.stock_code WHERE r.scope=p.scope AND r.sales_code=p.code AND (s.cost IS NULL OR s.archived=1)) THEN (SELECT SUM(s.cost*r.per_unit) FROM stock_rules r JOIN physical_stocks s ON s.scope=r.scope AND s.code=r.stock_code WHERE r.scope=p.scope AND r.sales_code=p.code)+p.packing_cost ELSE NULL END) AS value FROM products p WHERE p.scope=? AND p.code=?`;
 export function appendCostSnapshot(d:D1Database,ss:D1PreparedStatement[],scope:string,code:string,now:number,rid:string,guard:string){
@@ -43,7 +44,13 @@ export async function appendOrderImport(raw:OrderLine,d:D1Database,scope:string,
  }
  if(old&&old.platform!==o.platform)throw new Error('同店铺编码和订单号的平台发生变化，请核对ERP店铺编码与平台，原订单和库存保持不变');
  o.buyer_remark??=old?.buyer_remark??'';o.seller_remark??=old?.seller_remark??'';o.remarks_available??=old?.remarks_available??0;
- const decision=force?'apply':importDecision(old??undefined,o);if(decision==='ignore')return;
+ const unpaidCandidate=isUnpaidWithoutExecution(o)||!!old&&isUnpaidWithoutExecution(old);
+ const history=unpaidCandidate?!!(await d.prepare(`SELECT (${unpaidHistorySQL}) present`).bind(...unpaidHistoryArgs(scope,o)).first<{present:number}>())?.present:true;
+ const unpaidKind=unpaidImportKind(old??undefined,o,history);
+ if(unpaidKind)ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (${unpaidHistorySQL}) THEN json('订单已有出库或打印记录，请刷新核对') ELSE 1 END`).bind(scope,rid,...unpaidHistoryArgs(scope,o)));
+ if(unpaidKind==='skip')return;
+ let decision=force?'apply':importDecision(old??undefined,o);if(decision==='ignore')return;
+ if(unpaidKind==='cancel')decision='apply';
  if(old)guardOrder(d,ss,scope,old,rid,guard);
  else ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND EXISTS(SELECT 1 FROM orders WHERE scope=? AND key=?) THEN json('订单已由另一批次录入，请刷新重试') ELSE 1 END`).bind(scope,rid,scope,o.key));
  if(decision==='conflict'){
@@ -72,6 +79,7 @@ export async function appendOrderImport(raw:OrderLine,d:D1Database,scope:string,
  // A later accepted update must not strand a pending conflict with a stale fingerprint.
  const saved={...o,amount:o.amount??old?.amount??null,cost:o.cost??old?.cost??null,shipped_at:shipAt,source_updated_at:o.source_updated_at??old?.source_updated_at??null,shipped_qty:shipped,cutoff_ack_at:old?.cutoff_ack_at??null};
  ss.push(d.prepare(`UPDATE order_conflicts SET fingerprint=? WHERE scope=? AND order_key=? AND ${guard}`).bind(orderFingerprint(saved),scope,o.key,scope,rid));
+ if(unpaidKind==='cancel')ss.push(d.prepare(`DELETE FROM order_conflicts WHERE scope=? AND order_key=? AND ${guard}`).bind(scope,o.key,scope,rid));
 }
 export async function appendOrderReview(b:Record<string,any>,d:D1Database,scope:string,now:number,rid:string,ss:D1PreparedStatement[],guard:string,v:Validators){
  const key=v.str(b.key,1000),o=await d.prepare('SELECT * FROM orders WHERE scope=? AND key=?').bind(scope,key).first<OrderLine>();

@@ -5,6 +5,7 @@ import {appendAutoPrintAccounting} from './print-accounting';
 import {appendShopSnapshots} from './shop-actions';
 import type {OrderLine} from './model';
 import type {ImportConflictGroup,StagedImportConflict} from './import-conflict-types';
+import {isUnpaidWithoutExecution,unpaidImportKind,unpaidHistorySQL,unpaidHistoryArgs} from './unpaid-order-import';
 export async function readImportConflicts(d:D1Database,scope:string,b:Record<string,any>){
  const status=b.status==='resolved'?'resolved':'pending',page=Math.max(1,Math.min(100000,Number(b.page)||1));
  const found=await d.batch([d.prepare('SELECT COUNT(*) n FROM import_conflict_groups WHERE scope=? AND status=?').bind(scope,status),d.prepare('SELECT g.*,o.key existing_key,o.status existing_status,o.deducted_qty existing_deducted_qty FROM import_conflict_groups g LEFT JOIN orders o ON o.scope=g.scope AND o.key=g.order_key WHERE g.scope=? AND g.status=? ORDER BY g.created_at DESC,g.id LIMIT 20 OFFSET ?').bind(scope,status,(page-1)*20)]);
@@ -16,6 +17,11 @@ export async function appendImportConflict(b:Record<string,any>,d:D1Database,sco
   const group=b.group as ImportConflictGroup,filename=v.str(b.filename,300);if(!group||!filename||!Array.isArray(group.rows)||group.rows.length<2||group.rows.length>2000)throw Error('冲突明细组无效');
   if(!group.order_id||!group.code||group.key!==JSON.stringify([...(group.shop.trim()?[]:[group.rows[0]?.line.platform]),group.shop.trim(),group.order_id,group.code]))throw Error('冲突订单编码无效');
   if(group.rows.some(r=>!r.line||r.line.key!==group.key||r.line.shop!==group.shop||r.line.code!==group.code||r.line.order_id!==group.order_id||!Number.isSafeInteger(r.row)||r.row<1))throw Error('冲突明细不属于同一商品');
+  if(group.rows.every(r=>isUnpaidWithoutExecution(r.line))){
+   const old=await d.prepare('SELECT * FROM orders WHERE scope=? AND key=?').bind(scope,group.key).first<OrderLine>();
+   const history=!!(await d.prepare(`SELECT (${unpaidHistorySQL}) present`).bind(...unpaidHistoryArgs(scope,group.rows[0].line)).first<{present:number}>())?.present;
+   if(unpaidImportKind(old??undefined,group.rows[0].line,history)==='skip')return true;
+  }
   if(ignoredOrderCode(group.code,await readImportIgnoreRules(d,scope))){ss.push(d.prepare(`INSERT INTO ignored_order_lines(scope,order_key,shop,order_id,code,payload,reason,created_at) SELECT ?,?,?,?,?,?,?,? WHERE ${guard} ON CONFLICT(scope,order_key) DO NOTHING`).bind(scope,group.key,group.shop,group.order_id,group.code,JSON.stringify(group),IGNORED_ORDER_REASON,now,scope,rid));return true;}
   const payload=JSON.stringify(group),bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(payload)),id=Array.from(new Uint8Array(bytes),n=>n.toString(16).padStart(2,'0')).join('');
   if(await d.prepare('SELECT 1 FROM import_conflict_groups WHERE scope=? AND id=?').bind(scope,id).first())return true;
