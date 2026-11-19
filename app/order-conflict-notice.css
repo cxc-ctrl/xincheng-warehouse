@@ -1,0 +1,5 @@
+.order-conflict-notice{display:flex;flex-direction:column;align-items:flex-start;gap:4px;max-width:470px;margin:0 0 12px;white-space:normal;line-height:1.6;overflow-wrap:anywhere}
+.order-conflict-notice strong{padding:3px 9px;border-radius:5px;background:#fff0e5;color:#a64c13;font-size:12px}
+.order-conflict-notice small{display:block;margin:0!important;color:#50657d;font-size:12px;line-height:1.6}
+.order-conflict-notice .order-conflict-check{color:#8b4b22}
+.modal-form>.order-conflict-notice{max-width:none}
