@@ -4,9 +4,9 @@ const unpaid=new Set(['未付款','待付款','待支付']);
 export function withoutOrderExecution(o:OrderLine){return !(o.shipped_at||(o.shipped_qty??0)>0||(o.deducted_qty??0)>0||o.fulfillment_mode==='print'||o.unit_cost_snapshot!=null||o.manual_stock_cost_cents!=null||sourceDetails(o)?.shipment_confirmed);}
 export function isUnpaidWithoutExecution(o:OrderLine){return unpaid.has(o.status)&&withoutOrderExecution(o);}
 export function unpaidImportKind(old:OrderLine|undefined,next:OrderLine,history:boolean):'skip'|'cancel'|null{
- if(history||old&&!isUnpaidWithoutExecution(old))return null;
- if(isUnpaidWithoutExecution(next))return 'skip';
- if(old&&['已取消','已关闭'].includes(next.status)&&withoutOrderExecution(next)&&old.quantity===next.quantity&&old.order_time===next.order_time&&old.platform===next.platform)return 'cancel';
+ if(history||old&&!withoutOrderExecution(old))return null;
+ if(isUnpaidWithoutExecution(next)&&(!old||isUnpaidWithoutExecution(old)||['已取消','已关闭'].includes(old.status)))return 'skip';
+ if(old&&isUnpaidWithoutExecution(old)&&['已取消','已关闭'].includes(next.status)&&withoutOrderExecution(next)&&old.quantity===next.quantity&&old.order_time===next.order_time&&old.platform===next.platform)return 'cancel';
  return null;
 }
 // A zero current balance does not prove that no stock, return or printing action occurred.

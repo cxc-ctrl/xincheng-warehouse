@@ -13,6 +13,7 @@ const {unpaidImportKind}=load(root+'/lib/unpaid-order-import.ts');
  sql.prepare(`insert into order_conflicts(scope,order_key,payload,reason,fingerprint,created_at) values('isolated',?,?, 'old false alarm',?,?)`).run(legacy.key,JSON.stringify(cancelled),fingerprint,at);
  await imported([cancelled]);assert.equal(sql.prepare('select status from orders where key=?').get(legacy.key).status,'已取消');assert.equal(sql.prepare('select count(*) n from order_conflicts where order_key=?').get(legacy.key).n,0,'Unshipped unpaid cancellations clear old false alarms');
  assert.equal(sql.prepare('select deducted_qty from orders where key=?').get(legacy.key).deducted_qty,0);
+ await imported([legacy]);assert.equal(sql.prepare('select status from orders where key=?').get(legacy.key).status,'已取消');assert.equal(sql.prepare('select count(*) n from order_conflicts where order_key=?').get(legacy.key).n,0,'An older unpaid file must not reopen a resolved cancellation');
  sql.prepare(`insert into product_supply_profiles(scope,code,source_product,source_revision,config,updated_at) values('isolated','SKU','synthetic',1,?,?)`).run(JSON.stringify({variant:{supply_mode:'打印定制'}}),at);
  await imported([cancelled]);assert.equal(sql.prepare("select count(*) n from print_jobs where order_id='LEGACY'").get().n,0,'Cancelled unpaid print products do not enter printing accounting');
  assert.equal(unpaidImportKind({...legacy,shipped_qty:1},cancelled,false),null);
