@@ -9,6 +9,7 @@ import {isValid,type OrderLine} from './model';
 import {importDecision,orderFingerprint,type OrderConflict} from './order-policy';
 import {MAX_RECIPE_STOCKS} from './recipe-limits';
 import {isUnpaidWithoutExecution,unpaidImportKind,unpaidHistorySQL,unpaidHistoryArgs} from './unpaid-order-import';
+import {readOutboundLink,attachOutboundHistory} from './manual-outbound';
 type Validators={str:(v:unknown,max?:number)=>string;qty:(v:unknown,allowZero?:boolean)=>number;cost:(v:unknown)=>number|null;timestamp:(v:unknown)=>number};
 const costSql=`SELECT COALESCE(p.cost,CASE WHEN p.stock_mode='recipe' AND EXISTS(SELECT 1 FROM stock_rules WHERE scope=p.scope AND sales_code=p.code) AND NOT EXISTS(SELECT 1 FROM stock_rules r LEFT JOIN physical_stocks s ON s.scope=r.scope AND s.code=r.stock_code WHERE r.scope=p.scope AND r.sales_code=p.code AND (s.cost IS NULL OR s.archived=1)) THEN (SELECT SUM(s.cost*r.per_unit) FROM stock_rules r JOIN physical_stocks s ON s.scope=r.scope AND s.code=r.stock_code WHERE r.scope=p.scope AND r.sales_code=p.code)+p.packing_cost ELSE NULL END) AS value FROM products p WHERE p.scope=? AND p.code=?`;
 export function appendCostSnapshot(d:D1Database,ss:D1PreparedStatement[],scope:string,code:string,now:number,rid:string,guard:string){
@@ -49,6 +50,8 @@ export async function appendOrderImport(raw:OrderLine,d:D1Database,scope:string,
  const unpaidKind=unpaidImportKind(old??undefined,o,history);
  if(unpaidKind)ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (${unpaidHistorySQL}) THEN json('订单已有出库或打印记录，请刷新核对') ELSE 1 END`).bind(scope,rid,...unpaidHistoryArgs(scope,o)));
  if(unpaidKind==='skip')return;
+ const outbound=await readOutboundLink(d,scope,o,rid,ss,guard);
+ if(outbound&&(outbound.platform!==o.platform||outbound.quantity!==o.quantity))throw Error('订单 '+o.order_id+' · '+o.code+' 与手动出库的平台或数量不一致（已出库 '+outbound.quantity+'，导入 '+o.quantity+'），请核对出库记录和订单原表');
  let decision=force?'apply':importDecision(old??undefined,o);if(decision==='ignore')return;
  if(unpaidKind==='cancel')decision='apply';
  if(old)guardOrder(d,ss,scope,old,rid,guard);
@@ -58,24 +61,25 @@ export async function appendOrderImport(raw:OrderLine,d:D1Database,scope:string,
  }
  appendOrderFinance(d,scope,o,now,rid,ss,guard);
  const execution=(detail?.shipment_confirmed||releaseStaged&&confirmSourceShipment)&&o.shipped_at&&!isValid(o.status)?{...o,status:'已发货'}:o;
- const wholePrint=await appendPrintingImport(d,scope,execution,old??undefined,now,rid,ss,guard);
- const supply=wholePrint?{handled:false,cost:undefined}:await appendSupplyImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
- const digitCost=wholePrint?null:supply.handled?supply.cost:await appendDigitImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
+ const wholePrint=!outbound&&await appendPrintingImport(d,scope,execution,old??undefined,now,rid,ss,guard);
+ const supply=wholePrint||outbound?{handled:false,cost:undefined}:await appendSupplyImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
+ const digitCost=outbound?outbound.unit_cost:wholePrint?null:supply.handled?supply.cost:await appendDigitImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
  const testImport=ignoreCutoff&&isValid(o.status);
- const shipped=Math.max(old?.shipped_qty??0,isValid(execution.status)?o.quantity:0),shipAt=o.shipped_at??old?.shipped_at??null,stockAt=shipAt??o.order_time;
+ const shipped=Math.max(old?.shipped_qty??0,isValid(execution.status)?o.quantity:0),shipAt=o.shipped_at??old?.shipped_at??(outbound&&shipped?Math.max(outbound.fulfilled_at,o.order_time):null),stockAt=shipAt??o.order_time;
  const snapshot=wholePrint?null:old?.unit_cost_snapshot??(shipped&&digitCost!==undefined?digitCost:shipped?(await d.prepare(costSql).bind(scope,o.code).first<{value:number|null}>())?.value:null)??null;
  const review=(sourceNeedsReview(o)&&(!old||sourceDetails(old)?.after_sale!==detail?.after_sale||sourceDetails(old)?.status!==detail?.status))||old?.review===1||!!(old?.shipped_qty&&((!isValid(o.status)&&old.status!==o.status)||o.quantity<old.quantity))?1:0;
  ss.push(d.prepare(`INSERT INTO orders(scope,key,order_id,shop,platform,code,title,spec,quantity,status,order_time,amount,cost,deducted_qty,review,reset,batch_id,updated_at,shipped_at,source_updated_at,shipped_qty,unit_cost_snapshot,buyer_remark,seller_remark,remarks_available)
  SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE((SELECT CASE WHEN stock_mode='direct' AND tracking_enabled=1 AND count_at>=COALESCE(tracking_at,0) AND quantity IS NOT NULL AND (?=1 OR count_at<?) THEN ? ELSE 0 END FROM products WHERE scope=? AND code=?),0),?,0,?,?,?,?,?,?,?,?,?
  WHERE ${guard}
  ON CONFLICT(scope,key) DO UPDATE SET title=excluded.title,spec=excluded.spec,buyer_remark=excluded.buyer_remark,seller_remark=excluded.seller_remark,remarks_available=excluded.remarks_available,quantity=excluded.quantity,status=excluded.status,order_time=excluded.order_time,amount=excluded.amount,cost=excluded.cost,reset=0,batch_id=excluded.batch_id,updated_at=excluded.updated_at,review=excluded.review,shipped_at=excluded.shipped_at,source_updated_at=COALESCE(excluded.source_updated_at,orders.source_updated_at),shipped_qty=excluded.shipped_qty,unit_cost_snapshot=COALESCE(orders.unit_cost_snapshot,excluded.unit_cost_snapshot),deducted_qty=MAX(orders.deducted_qty,excluded.deducted_qty)`)
- .bind(scope,o.key,o.order_id,o.shop,o.platform,o.code,o.title,o.spec,o.quantity,o.status,o.order_time,o.amount??old?.amount??null,o.cost??old?.cost??null,testImport?1:0,stockAt,shipped,scope,o.code,review,batch,now,shipAt,o.source_updated_at??null,shipped,snapshot,o.buyer_remark,o.seller_remark,Number(o.remarks_available),scope,rid));
+ .bind(scope,o.key,o.order_id,o.shop,o.platform,o.code,o.title,o.spec,o.quantity,o.status,o.order_time,o.amount??old?.amount??null,o.cost??old?.cost??null,testImport?1:0,stockAt,outbound?0:shipped,scope,o.code,review,batch,now,shipAt,o.source_updated_at??null,shipped,snapshot,o.buyer_remark,o.seller_remark,Number(o.remarks_available),scope,rid));
  ss.push(d.prepare(`UPDATE orders SET source_details=? WHERE scope=? AND key=? AND ${guard}`).bind(o.source_details,scope,o.key,scope,rid));
  if(wholePrint)ss.push(d.prepare(`UPDATE orders SET deducted_qty=0,reset=1,unit_cost_snapshot=NULL WHERE scope=? AND key=? AND NOT EXISTS(SELECT 1 FROM print_jobs j WHERE j.scope=orders.scope AND j.shop=orders.shop AND j.order_id=orders.order_id AND j.accounting_mode='sku') AND ${guard}`).bind(scope,o.key,scope,rid));
  // A print line has its own future cost basis; neither ERP cost nor the
  // finished-stock cost snapshot is a confirmed printing cost.
  ss.push(d.prepare(`UPDATE orders SET unit_cost_snapshot=NULL WHERE scope=? AND key=? AND EXISTS(SELECT 1 FROM digit_fulfillments f WHERE f.scope=orders.scope AND f.order_key=orders.key AND f.status='print') AND NOT EXISTS(SELECT 1 FROM print_jobs j WHERE j.scope=orders.scope AND j.shop=orders.shop AND j.order_id=orders.order_id AND j.accounting_mode='sku') AND ${guard}`).bind(scope,o.key,scope,rid));
- if(old&&!testImport&&(old.shipped_at??old.order_time)!==stockAt)appendShipmentRebase(d,ss,scope,o.key,stockAt,shipped,now,rid,guard);
+ if(outbound&&shipped&&!old?.shipped_qty)attachOutboundHistory(d,scope,o,outbound,now,rid,ss,guard);
+ if(old&&!outbound&&!testImport&&(old.shipped_at??old.order_time)!==stockAt)appendShipmentRebase(d,ss,scope,o.key,stockAt,shipped,now,rid,guard);
  // A later accepted update must not strand a pending conflict with a stale fingerprint.
  const saved={...o,amount:o.amount??old?.amount??null,cost:o.cost??old?.cost??null,shipped_at:shipAt,source_updated_at:o.source_updated_at??old?.source_updated_at??null,shipped_qty:shipped,cutoff_ack_at:old?.cutoff_ack_at??null};
  ss.push(d.prepare(`UPDATE order_conflicts SET fingerprint=? WHERE scope=? AND order_key=? AND ${guard}`).bind(orderFingerprint(saved),scope,o.key,scope,rid));
@@ -109,7 +113,7 @@ export async function appendOrderReview(b:Record<string,any>,d:D1Database,scope:
   const at=v.timestamp(b.shipped_at);if(at>now+60000||at<o.order_time)throw new Error('请填写下单之后、当前时间之前的实际发货时间');
   const shipped=o.shipped_qty??(isValid(o.status)?o.quantity:0);if(!shipped)throw new Error('这条订单尚无有效发货数量');
   ss.push(d.prepare(`UPDATE orders SET shipped_at=?,updated_at=? WHERE scope=? AND key=? AND ${guard}`).bind(at,now,scope,key,scope,rid));
-  appendShipmentRebase(d,ss,scope,key,at,shipped,now,rid,guard);audit('补录实际发货时间：'+new Date(at).toISOString()+'；按实物盘点时间校正扣减。');return;
+  if(!await d.prepare('SELECT 1 FROM manual_outbound_links WHERE scope=? AND order_key=?').bind(scope,key).first())appendShipmentRebase(d,ss,scope,key,at,shipped,now,rid,guard);audit('补录实际发货时间：'+new Date(at).toISOString()+'；按实物盘点时间校正扣减。');return;
  }
  if(b.mode!=='return')throw new Error('不支持的核对操作');
  if(await d.prepare('SELECT order_key FROM order_conflicts WHERE scope=? AND order_key=?').bind(scope,key).first())throw new Error('请先处理订单数据冲突');

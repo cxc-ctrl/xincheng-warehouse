@@ -1,7 +1,7 @@
 export async function readInventoryEntries(d:D1Database,scope:string,b:Record<string,any>){
  const page=Number(b.page??1),search=String(b.search??'').trim();
  if(!Number.isSafeInteger(page)||page<1||search.length>200)throw Error('查询条件无效');
- return (await d.prepare("SELECT * FROM inventory_entries WHERE scope=? AND instr(lower(reference||' '||note||' '||items),lower(?))>0 ORDER BY created_at DESC,id LIMIT 30 OFFSET ?").bind(scope,search,(page-1)*30).all()).results;
+ return (await d.prepare("SELECT e.*,EXISTS(SELECT 1 FROM inventory_entries r WHERE r.scope=e.scope AND r.reference=e.id AND r.type='撤销手动出库') AS reversed,EXISTS(SELECT 1 FROM orders o WHERE o.scope=e.scope AND o.key=e.order_key AND o.shipped_qty>0) AS imported FROM inventory_entries e WHERE scope=? AND instr(lower(reference||' '||note||' '||items),lower(?))>0 ORDER BY created_at DESC,id LIMIT 30 OFFSET ?").bind(scope,search,(page-1)*30).all()).results;
 }
 export function appendEntryRecord(d:D1Database,ss:D1PreparedStatement[],scope:string,rid:string,guard:string,type:string,reference:string,key:string,items:unknown[],note:string,operator:string,at:number,now:number){
  ss.push(d.prepare(`INSERT INTO inventory_entries(scope,id,type,reference,order_key,items,note,operator,received_at,created_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE ${guard}`).bind(scope,rid,type,reference,key,JSON.stringify(items),note,operator,at,now,scope,rid));

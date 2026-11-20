@@ -23,6 +23,9 @@ async function transfer(b:Record<string,any>,d:D1Database,scope:string,now:numbe
   const o=await d.prepare('SELECT * FROM orders WHERE scope=? AND key=?').bind(scope,b.key).first<Row>(),f=await d.prepare('SELECT updated_at FROM digit_fulfillments WHERE scope=? AND order_key=?').bind(scope,b.key).first<{updated_at:number}>();if(!o||!f||f.updated_at!==b.expected_at||digitSignature(o)!==b.signature)throw new Error('订单已更新，请刷新');shop=o.shop;id=o.order_id;
  }else{shop=text(b.shop,'店铺',160);id=text(b.order_id,'订单号',160);}
  const lines=(await d.prepare(groupSQL).bind(scope,shop,id).all<Row>()).results;if(!lines.length)throw new Error('没有找到该订单');if(lines.some(o=>o.review===1||['已关闭','已取消','未付款','待付款'].includes(o.status)))throw new Error('请先核对整单状态，取消、退款或未付款订单不能直接安排打印');if(lines.length>150)throw new Error('该订单商品行过多，请先核对');
+ const linked='SELECT 1 FROM manual_outbound_links WHERE scope=? AND shop=? AND order_id=?';
+ if(await d.prepare(linked).bind(scope,shop,id).first())throw Error('该订单已有手动出库，请先核对实物出库记录');
+ ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND EXISTS(${linked}) THEN json('该订单已有手动出库，请刷新核对') ELSE 1 END`).bind(scope,rid,scope,shop,id));
  const job=await d.prepare('SELECT * FROM print_jobs WHERE scope=? AND shop=? AND order_id=?').bind(scope,shop,id).first<PrintJob>();
  if(job?.accounting_mode==='sku')throw new Error('这张订单按SKU自动核算数码打印费用，现货商品继续按库存处理，无需整单转打印');
  if(b.action!=='digit_print'&&(b.basis!==printBasis(lines)||(job?.updated_at??0)!==b.updated_at))throw new Error('整单资料已变化，请刷新后重试');
