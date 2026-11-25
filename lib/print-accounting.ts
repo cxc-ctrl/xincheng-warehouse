@@ -5,7 +5,7 @@
 type Group={shop:string;order_id:string};
 function eligible(scope:string,g:Group){return {sql:`SELECT o.key FROM orders o LEFT JOIN product_supply_profiles p ON p.scope=o.scope AND p.code=o.code
  WHERE o.scope=? AND o.shop=? AND o.order_id=? AND (json_extract(p.config,'$.variant.supply_mode')='打印定制' OR EXISTS(SELECT 1 FROM digit_fulfillments f WHERE f.scope=o.scope AND f.order_key=o.key AND f.status='print' AND f.reason LIKE '数字贴自动转打印：%'))
- AND (o.status IN ('待发货','已付款','已发货','已完成') OR o.status IN ('已关闭','已取消') AND (o.shipped_qty>0 OR o.shipped_at IS NOT NULL)) AND o.deducted_qty=0
+ AND (o.status IN ('待发货','已付款','已发货','已完成') OR o.status IN ('已关闭','已取消') AND (o.shipped_qty>0 OR o.shipped_at IS NOT NULL)) AND o.deducted_qty=0 AND NOT (o.status IN ('已发货','已完成') AND o.shipped_qty=0 AND o.review=1)
  AND NOT EXISTS(SELECT 1 FROM order_stocks s WHERE s.scope=o.scope AND s.order_key=o.key AND s.deducted_qty>0)
  AND NOT EXISTS(SELECT 1 FROM manual_outbound_links m WHERE m.scope=o.scope AND m.order_key=o.key)
  AND NOT EXISTS(SELECT 1 FROM order_returns r WHERE r.scope=o.scope AND r.order_key=o.key)`,args:[scope,g.shop,g.order_id]};}

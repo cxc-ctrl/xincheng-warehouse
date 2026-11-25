@@ -9,6 +9,7 @@ import {isValid,type OrderLine} from './model';
 import {importDecision,orderFingerprint,type OrderConflict} from './order-policy';
 import {MAX_RECIPE_STOCKS} from './recipe-limits';
 import {isUnpaidWithoutExecution,unpaidImportKind,unpaidHistorySQL,unpaidHistoryArgs} from './unpaid-order-import';
+import {needsReplacementReview} from './replacement-review';
 import {readOutboundLink,attachOutboundHistory} from './manual-outbound';
 type Validators={str:(v:unknown,max?:number)=>string;qty:(v:unknown,allowZero?:boolean)=>number;cost:(v:unknown)=>number|null;timestamp:(v:unknown)=>number};
 const costSql=`SELECT COALESCE(p.cost,CASE WHEN p.stock_mode='recipe' AND EXISTS(SELECT 1 FROM stock_rules WHERE scope=p.scope AND sales_code=p.code) AND NOT EXISTS(SELECT 1 FROM stock_rules r LEFT JOIN physical_stocks s ON s.scope=r.scope AND s.code=r.stock_code WHERE r.scope=p.scope AND r.sales_code=p.code AND (s.cost IS NULL OR s.archived=1)) THEN (SELECT SUM(s.cost*r.per_unit) FROM stock_rules r JOIN physical_stocks s ON s.scope=r.scope AND s.code=r.stock_code WHERE r.scope=p.scope AND r.sales_code=p.code)+p.packing_cost ELSE NULL END) AS value FROM products p WHERE p.scope=? AND p.code=?`;
@@ -52,7 +53,8 @@ export async function appendOrderImport(raw:OrderLine,d:D1Database,scope:string,
  if(unpaidKind==='skip')return;
  const outbound=await readOutboundLink(d,scope,o,rid,ss,guard);
  if(outbound&&(outbound.platform!==o.platform||outbound.quantity!==o.quantity))throw Error('订单 '+o.order_id+' · '+o.code+' 与手动出库的平台或数量不一致（已出库 '+outbound.quantity+'，导入 '+o.quantity+'），请核对出库记录和订单原表');
- let decision=force?'apply':importDecision(old??undefined,o);if(decision==='ignore')return;
+ const importBasis=outbound&&old?{...o,shipped_at:old.shipped_at}:o;
+ let decision=force?'apply':importDecision(old??undefined,importBasis);if(decision==='ignore')return;
  if(unpaidKind==='cancel')decision='apply';
  if(old)guardOrder(d,ss,scope,old,rid,guard);
  else ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND EXISTS(SELECT 1 FROM orders WHERE scope=? AND key=?) THEN json('订单已由另一批次录入，请刷新重试') ELSE 1 END`).bind(scope,rid,scope,o.key));
@@ -61,13 +63,14 @@ export async function appendOrderImport(raw:OrderLine,d:D1Database,scope:string,
  }
  appendOrderFinance(d,scope,o,now,rid,ss,guard);
  const execution=(detail?.shipment_confirmed||releaseStaged&&confirmSourceShipment)&&o.shipped_at&&!isValid(o.status)?{...o,status:'已发货'}:o;
- const wholePrint=!outbound&&await appendPrintingImport(d,scope,execution,old??undefined,now,rid,ss,guard);
- const supply=wholePrint||outbound?{handled:false,cost:undefined}:await appendSupplyImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
- const digitCost=outbound?outbound.unit_cost:wholePrint?null:supply.handled?supply.cost:await appendDigitImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
+ const awaitingReplacement=!outbound&&!old?.shipped_qty&&isValid(execution.status)&&needsReplacementReview(o);
+ const wholePrint=!awaitingReplacement&&!outbound&&await appendPrintingImport(d,scope,execution,old??undefined,now,rid,ss,guard);
+ const supply=wholePrint||outbound||awaitingReplacement?{handled:false,cost:undefined}:await appendSupplyImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
+ const digitCost=outbound?outbound.unit_cost:wholePrint||awaitingReplacement?null:supply.handled?supply.cost:await appendDigitImport(d,ss,scope,execution,old??undefined,now,rid,guard,ignoreCutoff);
  const testImport=ignoreCutoff&&isValid(o.status);
- const shipped=Math.max(old?.shipped_qty??0,isValid(execution.status)?o.quantity:0),shipAt=o.shipped_at??old?.shipped_at??(outbound&&shipped?Math.max(outbound.fulfilled_at,o.order_time):null),stockAt=shipAt??o.order_time;
+ const shipped=Math.max(old?.shipped_qty??0,isValid(execution.status)&&!awaitingReplacement?o.quantity:0),shipAt=outbound&&shipped?Math.max(outbound.fulfilled_at,o.order_time):o.shipped_at??old?.shipped_at??null,stockAt=shipAt??o.order_time;
  const snapshot=wholePrint?null:old?.unit_cost_snapshot??(shipped&&digitCost!==undefined?digitCost:shipped?(await d.prepare(costSql).bind(scope,o.code).first<{value:number|null}>())?.value:null)??null;
- const review=(sourceNeedsReview(o)&&(!old||sourceDetails(old)?.after_sale!==detail?.after_sale||sourceDetails(old)?.status!==detail?.status))||old?.review===1||!!(old?.shipped_qty&&((!isValid(o.status)&&old.status!==o.status)||o.quantity<old.quantity))?1:0;
+ const review=awaitingReplacement||(sourceNeedsReview(o)&&(!old||sourceDetails(old)?.after_sale!==detail?.after_sale||sourceDetails(old)?.status!==detail?.status))||old?.review===1||!!(old?.shipped_qty&&((!isValid(o.status)&&old.status!==o.status)||o.quantity<old.quantity))?1:0;
  ss.push(d.prepare(`INSERT INTO orders(scope,key,order_id,shop,platform,code,title,spec,quantity,status,order_time,amount,cost,deducted_qty,review,reset,batch_id,updated_at,shipped_at,source_updated_at,shipped_qty,unit_cost_snapshot,buyer_remark,seller_remark,remarks_available)
  SELECT ?,?,?,?,?,?,?,?,?,?,?,?,?,COALESCE((SELECT CASE WHEN stock_mode='direct' AND tracking_enabled=1 AND count_at>=COALESCE(tracking_at,0) AND quantity IS NOT NULL AND (?=1 OR count_at<?) THEN ? ELSE 0 END FROM products WHERE scope=? AND code=?),0),?,0,?,?,?,?,?,?,?,?,?
  WHERE ${guard}
@@ -121,6 +124,8 @@ export async function appendOrderReview(b:Record<string,any>,d:D1Database,scope:
  if(Array.isArray(b.items)&&b.items.length&&await d.prepare("SELECT 1 FROM print_jobs j WHERE scope=? AND shop=? AND order_id=? AND (accounting_mode='whole' OR EXISTS(SELECT 1 FROM json_each(j.member_keys) WHERE value=?))").bind(scope,o.shop,o.order_id,o.key).first())throw new Error('整单打印不回补现货库存，请只保存核对说明');
  if(!Array.isArray(b.items)||b.items.length>MAX_RECIPE_STOCKS)throw new Error('退货明细无效');
  const at=v.timestamp(b.at??now);if(at>now+60000||at<o.order_time)throw new Error('退货时间无效');
+ const outbound=await d.prepare('SELECT items FROM manual_outbound_links WHERE scope=? AND order_key=?').bind(scope,key).first<{items:string}>();
+ const actualItems=outbound?JSON.parse(outbound.items) as import('./manual-outbound').OutboundItem[]:null;
  const seen=new Set<string>(),entryItems:any[]=[];
  for(const item of b.items){
   const code=v.str(item.code),kind=item.kind;if(!['physical','product'].includes(kind)||seen.has(kind+code))throw new Error('退货实物无效或重复');seen.add(kind+code);
@@ -128,7 +133,7 @@ export async function appendOrderReview(b:Record<string,any>,d:D1Database,scope:
   const stock=await d.prepare(`SELECT quantity,count_at,unit FROM ${table} WHERE scope=? AND code=? ${kind==='physical'?'AND archived=0':"AND stock_mode='direct' AND tracking_enabled=1"}`).bind(scope,code).first<{quantity:number|null;count_at:number|null;unit:string}>();
   if(!stock||stock.quantity==null)throw new Error('退货前请先确认这条实物的库存：'+code);
   const rule=kind==='physical'?await d.prepare('SELECT per_unit,allocated_qty FROM order_effective_rules WHERE scope=? AND order_key=? AND stock_code=?').bind(scope,o.key,code).first<{per_unit:number;allocated_qty:number|null}>():null;
-  const max=kind==='physical'&&rule?(rule.allocated_qty??o.shipped_qty??0)*rule.per_unit:(kind==='product'&&code===o.code?o.shipped_qty??0:0);
+  const max=actualItems?(o.shipped_qty?actualItems.find(i=>i.kind===kind&&i.code===code)?.quantity??0:0):kind==='physical'&&rule?(rule.allocated_qty??o.shipped_qty??0)*rule.per_unit:(kind==='product'&&code===o.code?o.shipped_qty??0:0);
   const returned=await d.prepare('SELECT COALESCE(SUM(quantity+damaged),0) AS n FROM order_returns WHERE scope=? AND order_key=? AND kind=? AND code=?').bind(scope,key,kind,code).first<{n:number}>();
   if(n+damaged+(returned?.n??0)>max)throw new Error('退货数量超过该订单尚可退回的数量：'+code);
   ss.push(d.prepare(`SELECT CASE WHEN ${guard} AND (?+COALESCE((SELECT SUM(quantity+damaged) FROM order_returns WHERE scope=? AND order_key=? AND kind=? AND code=?),0)>? OR NOT EXISTS(SELECT 1 FROM ${table} WHERE scope=? AND code=? AND quantity IS NOT NULL AND count_at IS ?)) THEN json('退货超出已发数量或库存已变化，请刷新') ELSE 1 END`).bind(scope,rid,n+damaged,scope,key,kind,code,max,scope,code,stock.count_at));
